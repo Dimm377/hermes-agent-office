@@ -34,3 +34,22 @@ export interface OfficeStation {
 }
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
 export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSummary; fetchedAt: string }
+export interface CountSource { availability: Availability; total: number }
+export interface DashboardSnapshot {
+  runtime: RuntimeSnapshot
+  tasks: CountSource & { byStatus: Record<string, number>; assigned: number }
+  calendar: CountSource & { active: number; paused: number; nextRun?: string }
+  activity: CountSource & { latest?: Session }
+  knowledge: CountSource & { byCategory: Record<string, number> }
+  channels: CountSource & { connected: number; activeSessions?: number }
+  office: OfficeSummary
+  commands: CommandHealth
+  fetchedAt: string
+}
+export interface CommandLogEntry { command: string; ok: boolean; durationMs: number; at: string; error?: string }
+export interface CommandHealth { total: number; failed: number; averageMs: number }
+export interface CommandLogSnapshot { entries: CommandLogEntry[]; health: CommandHealth; fetchedAt: string }
+export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'OTHER'
+export interface LogLine { text: string; level: LogLevel }
+export interface LogFile { name: string; label: string; source: Source<LogLine[]> }
+export interface LogsSnapshot { files: LogFile[]; fetchedAt: string }

@@ -3,6 +3,10 @@ import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
 const CACHE_MS = 10_000
+const INSIGHTS_CACHE_MS = 60_000
+const COMMAND_TIMEOUT_MS = 8_000
+const COMMAND_LOG_LIMIT = 100
+const LOG_TAIL_LINES = 200
 
 export type Availability = 'available' | 'unavailable'
 export type GatewayState = 'Running' | 'Stopped' | 'Unknown'
@@ -19,9 +23,9 @@ export interface RuntimeSnapshot {
   openCode: Source<string>
   fetchedAt: string
 }
-export interface Task { title: string; status: string; id?: string; assignee?: string }
-export interface ScheduledJob { name: string; schedule: string; nextRun?: string; status?: string }
-export interface Session { title: string; preview: string; lastActive: string; id?: string; actor?: string; active?: boolean }
+export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number }
+export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean }
+export interface Session { title: string; preview: string; lastActive: string; id?: string; workspace?: string; source?: string; actor?: string; active?: boolean }
 export interface Skill { name: string; category: string; source: string; trust: string; status: 'enabled' }
 export interface TaskBoardSnapshot { tasks: Source<Task[]>; fetchedAt: string }
 export interface CalendarSnapshot { jobs: Source<ScheduledJob[]>; fetchedAt: string }
@@ -48,44 +52,48 @@ export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSumm
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
 export interface ExplicitOfficeState { station: OfficeStation['name']; state: 'Working' | 'Reviewing' | 'Collaborating'; expiresAt: string }
 export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[] }
+export interface UsageInsights {
+  days: number
+  sessions: number
+  messages: number
+  toolCalls: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  estimatedCost?: string
+  models: { model: string; sessions: number; tokens: number }[]
+  tools: { tool: string; calls: number }[]
+}
+export interface CountSource { availability: Availability; total: number }
+export interface CommandLogEntry { command: string; ok: boolean; durationMs: number; at: string; error?: string }
+export interface CommandHealth { total: number; failed: number; averageMs: number }
+export interface CommandLogSnapshot { entries: CommandLogEntry[]; health: CommandHealth; fetchedAt: string }
+export interface DashboardSnapshot {
+  runtime: RuntimeSnapshot
+  tasks: CountSource & { byStatus: Record<string, number>; assigned: number }
+  calendar: CountSource & { active: number; paused: number; nextRun?: string }
+  activity: CountSource & { latest?: Session }
+  knowledge: CountSource & { byCategory: Record<string, number> }
+  channels: CountSource & { connected: number; activeSessions?: number }
+  office: OfficeSummary
+  usage: Source<UsageInsights | null>
+  commands: CommandHealth
+  fetchedAt: string
+}
+export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'OTHER'
+export interface LogLine { text: string; level: LogLevel }
+export interface LogFile { name: string; label: string; source: Source<LogLine[]> }
+export interface LogsSnapshot { files: LogFile[]; fetchedAt: string }
 
 type Run = (file: string, args: string[]) => Promise<string>
-let cache: { snapshot: RuntimeSnapshot; expires: number } | undefined
-let taskBoardCache: { snapshot: TaskBoardSnapshot; expires: number } | undefined
-let calendarCache: { snapshot: CalendarSnapshot; expires: number } | undefined
-let activityCache: { snapshot: ActivitySnapshot; expires: number } | undefined
-let knowledgeCache: { snapshot: KnowledgeSnapshot; expires: number } | undefined
-let channelCache: { snapshot: ChannelSnapshot; expires: number } | undefined
 
-export function parseProfiles(output: string): Profile[] {
-  const lines = stripAnsi(output).split('\n')
-  if (!lines.some((line) => /\bProfile\b/.test(line) && /\bModel\b/.test(line))) throw new Error('Unrecognized profile output.')
-  const profiles = lines.flatMap((line) => {
-    const match = line.replace(/^[^\w]*|\s+$/g, '').match(/^(\S+)\s{2,}(\S+)/)
-    return match && match[1] !== 'Profile' ? [{ name: match[1], model: match[2] }] : []
-  })
-  if (profiles.length === 0) throw new Error('Unrecognized profile output.')
-  return profiles
+/** Error thrown by the command runner. Carries stdout so a caller can recognise a benign non-zero exit. */
+export class CommandError extends Error {
+  constructor(message: string, readonly code: 'COMMAND_FAILED' | 'TIMEOUT', readonly stdout = '') { super(message) }
 }
 
-export function parseGatewayStatus(output: string): GatewayState {
-  if (/\b(stopped|inactive|not running)\b/i.test(output)) return 'Stopped'
-  if (/\b(running|active)\b/i.test(output)) return 'Running'
-  return 'Unknown'
-}
-
-function parseDefaultProfileGateway(output: string): GatewayState {
-  const lines = stripAnsi(output).split('\n')
-  const header = lines.find((line) => /\bProfile\b/.test(line) && /\bModel\b/.test(line) && /\bGateway\b/.test(line))
-  if (!header) return 'Unknown'
-  const gatewayIndex = header.trim().split(/\s{2,}/).findIndex((cell) => cell === 'Gateway')
-  if (gatewayIndex < 0) return 'Unknown'
-  const defaultRow = lines.map((line) => line.trim().split(/\s{2,}/)).find((cells) => cells[0]?.replace(/^\W+/, '') === 'default')
-  const gateway = defaultRow?.[gatewayIndex]?.trim().toLowerCase()
-  if (gateway === 'running' || gateway === 'active') return 'Running'
-  if (gateway === 'stopped' || gateway === 'inactive' || gateway === 'not running') return 'Stopped'
-  return 'Unknown'
-}
+// ---------------------------------------------------------------------------
+// Shared text helpers
 
 function text(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
@@ -95,33 +103,100 @@ function stripAnsi(output: string): string {
   return output.replace(new RegExp(`${String.fromCharCode(27)}\\[[0-?]*[ -/]*[@-~]`, 'g'), '')
 }
 
+function lines(output: string): string[] {
+  return stripAnsi(output).replace(/\r/g, '').split('\n')
+}
+
+function toInt(value: string | undefined): number {
+  const parsed = Number((value ?? '').replace(/,/g, ''))
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+// ---------------------------------------------------------------------------
+// Parsers. Formats follow the Hermes CLI (hermes_cli/*) as printed to a pipe.
+
+const PROFILE_ROW = /^(.+?)\s+(\S+)\s+(running|stopped)(?:\s|$)/i
+
+interface ProfileRow { name: string; model: string; gateway: GatewayState }
+
+function profileRows(output: string): ProfileRow[] {
+  const all = lines(output)
+  const headerIndex = all.findIndex((line) => /\bProfile\b/.test(line) && /\bModel\b/.test(line))
+  if (headerIndex < 0) throw new Error('Unrecognized profile output.')
+  return all.slice(headerIndex + 1).flatMap((line): ProfileRow[] => {
+    const row = line.replace(/^[\s◆*>•]+/u, '').trimEnd()
+    if (!row || /^[─-]+(\s+[─-]+)*$/.test(row)) return []
+    const withGateway = row.match(PROFILE_ROW)
+    const match = withGateway ?? row.match(/^(\S+)\s{2,}(\S+)/)
+    if (!match) return []
+    // A display name renders as "Display Name (id)"; the id is the stable profile name.
+    const displayed = match[1].trim()
+    const name = displayed.match(/\(([\w.-]+)\)$/)?.[1] ?? displayed
+    const model = match[2] === '—' ? 'Not configured' : match[2]
+    const gateway: GatewayState = withGateway ? (withGateway[3].toLowerCase() === 'running' ? 'Running' : 'Stopped') : 'Unknown'
+    return [{ name, model, gateway }]
+  })
+}
+
+export function parseProfiles(output: string): Profile[] {
+  const profiles = profileRows(output).map(({ name, model }) => ({ name, model }))
+  if (profiles.length === 0) throw new Error('Unrecognized profile output.')
+  return profiles
+}
+
+function parseDefaultProfileGateway(output: string): GatewayState {
+  return profileRows(output).find((row) => row.name === 'default')?.gateway ?? 'Unknown'
+}
+
+export function parseGatewayStatus(output: string): GatewayState {
+  const clean = stripAnsi(output)
+  // Hermes ends every variant with a ✓/✗ summary line; prefer it over raw systemd/journal text.
+  if (/^\s*✗.*\b(not running|stopped|inactive)\b/im.test(clean)) return 'Stopped'
+  if (/^\s*✓.*\b(running|supervised)\b/im.test(clean)) return 'Running'
+  if (/\bparked\b/i.test(clean)) return 'Stopped'
+  if (/\b(stopped|inactive|not running)\b/i.test(clean)) return 'Stopped'
+  if (/\b(running|active)\b/i.test(clean)) return 'Running'
+  return 'Unknown'
+}
+
 export function parseTasks(output: string): Task[] {
   const parsed: unknown = JSON.parse(output)
-  if (!Array.isArray(parsed)) throw new Error('Kanban response was not an array.')
-  const tasks = parsed.flatMap((item) => {
+  const list = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).tasks) ? (parsed as { tasks: unknown[] }).tasks : undefined
+  if (!list) throw new Error('Kanban response was not an array.')
+  const tasks = list.flatMap((item) => {
     if (!item || typeof item !== 'object') return []
     const record = item as Record<string, unknown>
     const title = text(record.title) ?? text(record.name)
     const status = text(record.status) ?? text(record.state)
     const id = text(record.id)
     const assignee = text(record.assignee) ?? text(record.assignedTo) ?? text(record.owner)
-    return title && status ? [{ title, status, ...(id && /^[A-Za-z0-9_-]+$/.test(id) ? { id } : {}), ...(assignee ? { assignee } : {}) }] : []
+    const priority = typeof record.priority === 'number' && Number.isFinite(record.priority) ? record.priority : undefined
+    return title && status ? [{ title, status: status.toLowerCase(), ...(id && /^[A-Za-z0-9_-]+$/.test(id) ? { id } : {}), ...(assignee ? { assignee } : {}), ...(priority !== undefined ? { priority } : {}) }] : []
   })
-  if (parsed.length > 0 && tasks.length === 0) throw new Error('Unrecognized Kanban output.')
+  if (list.length > 0 && tasks.length === 0) throw new Error('Unrecognized Kanban output.')
   return tasks
 }
 
 function tableRows(output: string): { headers: string[]; rows: string[][] } {
-  const lines = stripAnsi(output).split('\n')
-  const headerLine = lines.find((line) => /[│┃]/.test(line) && /\bName\b/.test(line))
+  const all = lines(output)
+  const headerLine = all.find((line) => /[│┃]/.test(line) && /\bName\b/.test(line))
   if (!headerLine) return { headers: [], rows: [] }
   const headers = headerLine.split(/[│┃]/).slice(1, -1).map((cell) => cell.trim().toLowerCase())
-  const headerIndex = lines.indexOf(headerLine)
-  const rows = lines.slice(headerIndex + 1).flatMap((line) => {
-    if (!line.startsWith('│')) return []
-    const cells = line.split('│').slice(1, -1).map((cell) => cell.trim())
-    return cells.length === headers.length ? [cells] : []
-  })
+  const headerIndex = all.indexOf(headerLine)
+  const rows: string[][] = []
+  for (const line of all.slice(headerIndex + 1)) {
+    if (!line.trimStart().startsWith('│')) continue
+    const cells = line.trim().split('│').slice(1, -1).map((cell) => cell.trim())
+    if (cells.length !== headers.length) continue
+    // Rich wraps long cells onto continuation rows. The last column (Status) is always set on a
+    // real row, so a row with an empty last cell continues the previous one.
+    const previous = rows[rows.length - 1]
+    if (previous && !cells[cells.length - 1]) {
+      cells.forEach((cell, index) => { if (cell) previous[index] = previous[index].endsWith('-') ? `${previous[index]}${cell}` : `${previous[index]} ${cell}`.trim() })
+      continue
+    }
+    rows.push(cells)
+  }
   return { headers, rows }
 }
 
@@ -130,44 +205,90 @@ function headerValue(headers: string[], row: string[], names: string[]): string 
   return index === -1 ? undefined : text(row[index])
 }
 
+const CRON_JOB_HEADER = /^\s{0,4}(\S+)\s+\[(active|paused|completed|disabled)\]\s*$/
+const CRON_FIELD = /^\s{2,}(Name|Schedule|Repeat|Next run|Overdue|Last run):\s*(.*)$/
+
 export function parseCronJobs(output: string): ScheduledJob[] {
-  if (/^\s*No scheduled jobs\./im.test(stripAnsi(output))) return []
+  const clean = stripAnsi(output)
+  if (/^\s*No scheduled jobs\./im.test(clean)) return []
+  const jobs: ScheduledJob[] = []
+  let current: (Partial<ScheduledJob> & { id: string; status: string }) | undefined
+  const flush = () => {
+    if (current?.schedule) jobs.push({ name: current.name ?? current.id, schedule: current.schedule, id: current.id, status: current.status, ...(current.nextRun ? { nextRun: current.nextRun } : {}), ...(current.overdue ? { overdue: true } : {}), ...(current.repeat ? { repeat: current.repeat } : {}), ...(current.lastRun ? { lastRun: current.lastRun, lastRunOk: current.lastRunOk } : {}) })
+    current = undefined
+  }
+  for (const line of lines(clean)) {
+    const header = line.match(CRON_JOB_HEADER)
+    if (header) { flush(); current = { id: header[1], status: header[2] }; continue }
+    const field = current && line.match(CRON_FIELD)
+    if (!field || !current) continue
+    const value = field[2].trim()
+    if (field[1] === 'Name') current.name = value === '(unnamed)' ? undefined : value
+    if (field[1] === 'Schedule') current.schedule = value
+    if (field[1] === 'Repeat') current.repeat = value
+    if (field[1] === 'Next run') current.nextRun = value
+    if (field[1] === 'Overdue') { current.nextRun = value.split(/\s{2,}/)[0]; current.overdue = true }
+    if (field[1] === 'Last run') {
+      // Only the timestamp and the ok/failed outcome are exposed; error text is never returned.
+      const [at, outcome = ''] = value.split(/\s{2,}/)
+      current.lastRun = at
+      current.lastRunOk = /^ok\b/i.test(outcome)
+    }
+  }
+  flush()
+  if (jobs.length > 0) return jobs
+  // Fallback: an older Hermes rendered cron jobs as a Rich table.
   const { headers, rows } = tableRows(output)
-  if (headers.length === 0) throw new Error('Unrecognized cron output.')
-  const jobs = rows.flatMap((row) => {
+  const tableJobs = rows.flatMap((row) => {
     const name = headerValue(headers, row, ['name', 'title'])
     const schedule = headerValue(headers, row, ['schedule', 'cron'])
     const nextRun = headerValue(headers, row, ['next run', 'next'])
     const status = headerValue(headers, row, ['status'])
     return name && schedule ? [{ name, schedule, ...(nextRun ? { nextRun } : {}), ...(status ? { status } : {}) }] : []
   })
-  if (jobs.length === 0) throw new Error('Unrecognized cron output.')
-  return jobs
+  if (tableJobs.length === 0) throw new Error('Unrecognized cron output.')
+  return tableJobs
 }
 
+const SESSION_COLUMNS = ['Title', 'Preview', 'Workspace', 'Last Active', 'Src', 'ID'] as const
+
 export function parseSessions(output: string): Session[] {
-  const lines = stripAnsi(output).split('\n')
-  const header = lines.find((line) => /Title\s+Preview\s+Last Active\s+ID/.test(line))
-  if (!header) throw new Error('Unrecognized session output.')
-  const positions = ['Preview', 'Last Active', 'ID'].map((label) => header.indexOf(label))
-  if (positions.some((position) => position < 0)) throw new Error('Unrecognized session output.')
-  const [previewStart, lastActiveStart, idStart] = positions
-  const sessions = lines.slice(lines.indexOf(header) + 1).flatMap((line) => {
-    if (!line.trim() || /^[\s─-]+$/.test(line)) return []
-    const title = line.slice(0, previewStart).trim()
-    const preview = line.slice(previewStart, lastActiveStart).trim()
-    const lastActive = line.slice(lastActiveStart, idStart).trim()
-    const id = line.slice(idStart).trim()
-    if (!title || !preview || !lastActive) return []
-    return [{ title, preview, lastActive, ...(id && /^[A-Za-z0-9_-]+$/.test(id) ? { id } : {}) }]
-  })
+  const all = lines(output)
+  if (all.some((line) => /^\s*No sessions found\.?\s*$/.test(line))) return []
+  const headerIndex = all.findIndex((line) => /^(Title|Preview)\s/.test(line) && /\bLast Active\b/.test(line) && /\bID\s*$/.test(line))
+  if (headerIndex < 0) throw new Error('Unrecognized session output.')
+  const header = all[headerIndex]
+  const columns = SESSION_COLUMNS
+    .map((label) => ({ label, start: header.search(new RegExp(`(^|\\s)${label}(\\s|$)`)) }))
+    .filter((column) => column.start >= 0)
+    .map((column) => ({ ...column, start: column.start === 0 ? 0 : column.start + 1 }))
+    .sort((a, b) => a.start - b.start)
+  const sessions: Session[] = []
+  for (const line of all.slice(headerIndex + 1)) {
+    if (!line.trim() || /^[\s─-]+$/.test(line)) continue
+    const id = line.trim().split(/\s+/).pop()
+    if (!id || !/^[A-Za-z0-9_-]{6,}$/.test(id)) continue
+    const cell = (label: typeof SESSION_COLUMNS[number]) => {
+      const index = columns.findIndex((column) => column.label === label)
+      if (index < 0) return undefined
+      const end = columns[index + 1]?.start ?? line.length
+      const value = line.slice(columns[index].start, end).trim()
+      return value && value !== '—' ? value : undefined
+    }
+    const preview = cell('Preview') ?? ''
+    const title = cell('Title') ?? (preview || 'Untitled session')
+    const lastActive = cell('Last Active') ?? 'Unknown'
+    const workspace = cell('Workspace')
+    const source = cell('Src')
+    sessions.push({ title, preview, lastActive, id, ...(workspace ? { workspace } : {}), ...(source ? { source } : {}) })
+  }
   return sessions
 }
 
 export function parseSkills(output: string): Skill[] {
   const { headers, rows } = tableRows(output)
   if (!['name', 'category', 'source', 'trust', 'status'].every((header) => headers.includes(header))) throw new Error('Unrecognized skill output.')
-  const skills = rows.flatMap((row) => {
+  return rows.flatMap((row) => {
     const name = headerValue(headers, row, ['name'])
     const category = headerValue(headers, row, ['category']) ?? ''
     const source = headerValue(headers, row, ['source'])
@@ -175,31 +296,152 @@ export function parseSkills(output: string): Skill[] {
     const status = headerValue(headers, row, ['status'])
     return name && source && trust && status === 'enabled' ? [{ name, category, source, trust, status: 'enabled' as const }] : []
   })
-  return skills
 }
 
+const PLATFORMS = ['WeCom Callback', 'Telegram', 'Discord', 'WhatsApp', 'Signal', 'Slack', 'Email', 'SMS', 'DingTalk', 'Feishu', 'WeCom', 'Weixin', 'BlueBubbles', 'QQBot', 'Yuanbao', 'Matrix', 'Mattermost', 'iMessage']
+const PLATFORM_ROW = new RegExp(`^\\s*(${PLATFORMS.join('|')})(?:\\s*:\\s*|\\s+)(?:[✓✗]\\s*)?(configured|connected)\\b`, 'i')
+
 export function parseChannelStatus(output: string): { channels: Channel[]; activeSessions?: number } {
-  const lines = stripAnsi(output).split('\n')
-  const heading = lines.findIndex((line) => /^[^\w\r\n]*Messaging Platforms\s*$/i.test(line.trim()))
+  const all = lines(output)
+  const heading = all.findIndex((line) => /^[^\w\r\n]*Messaging Platforms\s*$/i.test(line.trim()))
   if (heading < 0) throw new Error('Unrecognized channel output.')
-  const allowed = new Map([['telegram', 'Telegram'], ['discord', 'Discord'], ['whatsapp', 'WhatsApp'], ['slack', 'Slack'], ['signal', 'Signal'], ['matrix', 'Matrix'], ['imessage', 'iMessage']])
-  const channels = lines.slice(heading + 1).flatMap((line) => {
-    const match = line.match(/^\s*(Telegram|Discord|WhatsApp|Slack|Signal|Matrix|iMessage)(?:\s*:\s*|\s+)(?:✓\s*)?(configured|connected)\b/i)
-    if (!match) return []
-    return [{ name: allowed.get(match[1].toLowerCase())!, status: match[2].toLowerCase() === 'connected' ? 'Connected' as const : 'Configured' as const }]
-  })
-  const sessionLine = lines.find((line) => /^\s*Active sessions\s*:?[ ]+\d+\s*$/i.test(line))
-  const sessionMatch = sessionLine?.match(/(\d+)/)
+  const canonical = new Map(PLATFORMS.map((name) => [name.toLowerCase(), name]))
+  const channels: Channel[] = []
+  for (const line of all.slice(heading + 1)) {
+    if (/^\s*◆/.test(line)) break
+    const match = line.match(PLATFORM_ROW)
+    if (match) channels.push({ name: canonical.get(match[1].toLowerCase())!, status: match[2].toLowerCase() === 'connected' ? 'Connected' : 'Configured' })
+  }
+  // Current Hermes: "◆ Sessions" section with "  Active:  3 session(s)". Older: "Active sessions: 3".
+  const sessionsHeading = all.findIndex((line) => /^[^\w]*Sessions\s*$/.test(line.trim()))
+  const sectionLine = sessionsHeading >= 0 ? all.slice(sessionsHeading + 1).find((line, index, rest) => /^\s*Active:\s+\d+/.test(line) && !rest.slice(0, index).some((previous) => /^\s*◆/.test(previous))) : undefined
+  const legacyLine = all.find((line) => /^\s*Active sessions\s*:?[ ]+\d+\s*$/i.test(line))
+  const sessionMatch = (sectionLine ?? legacyLine)?.match(/(\d+)/)
   return { channels, ...(sessionMatch ? { activeSessions: Number(sessionMatch[1]) } : {}) }
 }
 
-function failure<T>(error: unknown, fallback: T): Source<T> {
-  const timedOut = error instanceof Error && /timed out|timeout/i.test(error.message)
-  return {
-    availability: 'unavailable',
-    data: fallback,
-    error: { code: timedOut ? 'TIMEOUT' : 'COMMAND_FAILED', message: timedOut ? 'Read timed out.' : 'Read command was unavailable.' },
+export function parseInsights(output: string, days: number): UsageInsights {
+  const all = lines(output)
+  const empty: UsageInsights = { days, sessions: 0, messages: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, models: [], tools: [] }
+  if (all.some((line) => /No sessions found in the last|No session data yet/i.test(line))) return empty
+  const overviewIndex = all.findIndex((line) => /Overview\s*$/.test(line))
+  if (overviewIndex < 0) throw new Error('Unrecognized insights output.')
+  const joined = all.join('\n')
+  const number = (label: string) => toInt(joined.match(new RegExp(`${label}:\\s+([\\d,]+)`))?.[1])
+  const section = (title: RegExp) => {
+    const start = all.findIndex((line) => title.test(line))
+    if (start < 0) return []
+    const rows: string[] = []
+    for (const line of all.slice(start + 3)) { if (!line.trim()) break; rows.push(line) }
+    return rows
   }
+  const models = section(/Models Used\s*$/).flatMap((line) => {
+    const match = line.match(/^\s+(.+?)\s+(\d+)\s+([\d,]+)\s*$/)
+    return match ? [{ model: match[1], sessions: toInt(match[2]), tokens: toInt(match[3]) }] : []
+  })
+  const tools = section(/Top Tools\s*$/).flatMap((line) => {
+    const match = line.match(/^\s+(\S.*?)\s+([\d,]+)\s+[\d.]+%\s*$/)
+    return match ? [{ tool: match[1], calls: toInt(match[2]) }] : []
+  })
+  const estimatedCost = joined.match(/Estimated:\s+(~?\$[\d,.]+)/)?.[1]
+  return {
+    days,
+    sessions: number('Sessions'),
+    messages: number('Messages'),
+    toolCalls: number('Tool calls'),
+    inputTokens: number('Input tokens'),
+    outputTokens: number('Output tokens'),
+    totalTokens: number('Total tokens'),
+    ...(estimatedCost ? { estimatedCost } : {}),
+    models,
+    tools,
+  }
+}
+
+const SECRET_PATTERNS: [RegExp, string][] = [
+  [/\b(sk|pk|rk|xox[abprs]|ghp|gho|ghs|github_pat|glpat|AKIA)[-_A-Za-z0-9]{8,}/g, '[redacted]'],
+  [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted]'],
+  [/\b([A-Za-z_]*(?:api[_-]?key|token|secret|password|passwd|authorization|cookie)[A-Za-z_]*)(["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, '$1$2[redacted]'],
+  [/\b\d{8,10}:[A-Za-z0-9_-]{30,}\b/g, '[redacted]'],
+  [/(?:\/home|\/Users)\/[^/\s]+|\/root(?=\/|\b)/g, '~'],
+]
+
+export function redactLogLine(line: string): string {
+  const redacted = SECRET_PATTERNS.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), line)
+  return redacted.length > 600 ? `${redacted.slice(0, 600)}…` : redacted
+}
+
+const LOG_LEVEL = /^\d{4}-\d{2}-\d{2}[ T][\d:,.]+\s+(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\b/
+
+export function parseLogLines(output: string): LogLine[] {
+  let level: LogLevel = 'OTHER'
+  return lines(output).flatMap((raw): LogLine[] => {
+    if (!raw.trim() || /^---\s.*\s---$/.test(raw.trim())) return []
+    const match = raw.match(LOG_LEVEL)
+    if (match) {
+      const found = match[1]
+      level = found === 'CRITICAL' ? 'ERROR' : found === 'WARN' ? 'WARNING' : found as LogLevel
+    }
+    return [{ text: redactLogLine(raw), level }]
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Command runner, with a bounded in-memory audit log of fixed read commands.
+
+const commandLog: CommandLogEntry[] = []
+
+function recordCommand(entry: CommandLogEntry): void {
+  commandLog.unshift(entry)
+  if (commandLog.length > COMMAND_LOG_LIMIT) commandLog.length = COMMAND_LOG_LIMIT
+}
+
+function describeFailure(error: unknown): CommandError {
+  if (error instanceof CommandError) return error
+  const detail = (error ?? {}) as { code?: unknown; killed?: boolean; signal?: unknown; stdout?: unknown; message?: unknown }
+  const stdout = typeof detail.stdout === 'string' ? detail.stdout : ''
+  if (detail.killed || detail.signal === 'SIGTERM' || /timed? ?out/i.test(String(detail.message ?? ''))) return new CommandError('Read timed out.', 'TIMEOUT', stdout)
+  if (detail.code === 'ENOENT') return new CommandError('Command not installed or not on PATH.', 'COMMAND_FAILED', stdout)
+  if (detail.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return new CommandError('Command output exceeded the read limit.', 'COMMAND_FAILED', stdout)
+  if (typeof detail.code === 'number') return new CommandError(`Command exited with code ${detail.code}.`, 'COMMAND_FAILED', stdout)
+  return new CommandError('Read command was unavailable.', 'COMMAND_FAILED', stdout)
+}
+
+async function systemRun(file: string, args: string[]): Promise<string> {
+  const started = Date.now()
+  const command = [file, ...args].join(' ')
+  try {
+    const { stdout } = await execFile(file, args, {
+      timeout: COMMAND_TIMEOUT_MS,
+      maxBuffer: 2 * 1024 * 1024,
+      env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', COLUMNS: '200', PYTHONIOENCODING: 'utf-8' },
+    })
+    recordCommand({ command, ok: true, durationMs: Date.now() - started, at: new Date(started).toISOString() })
+    return stdout
+  } catch (error) {
+    const failure = describeFailure(error)
+    recordCommand({ command, ok: false, durationMs: Date.now() - started, at: new Date(started).toISOString(), error: failure.message })
+    throw failure
+  }
+}
+
+function commandHealth(): CommandHealth {
+  const failed = commandLog.filter((entry) => !entry.ok).length
+  const averageMs = commandLog.length ? Math.round(commandLog.reduce((sum, entry) => sum + entry.durationMs, 0) / commandLog.length) : 0
+  return { total: commandLog.length, failed, averageMs }
+}
+
+export function getCommandLog(): CommandLogSnapshot {
+  return { entries: commandLog.slice(0, 50), health: commandHealth(), fetchedAt: new Date().toISOString() }
+}
+
+export function clearCommandLog(): void { commandLog.length = 0 }
+
+function failure<T>(error: unknown, fallback: T): Source<T> {
+  const described = error instanceof CommandError ? error : error instanceof Error && /timed out|timeout/i.test(error.message) ? new CommandError('Read timed out.', 'TIMEOUT') : undefined
+  const code = described?.code ?? 'COMMAND_FAILED'
+  const message = described?.message ?? (error instanceof SyntaxError ? 'Source returned output that could not be parsed.' : error instanceof Error && /^Unrecognized/.test(error.message) ? error.message : 'Read command was unavailable.')
+  return { availability: 'unavailable', data: fallback, error: { code, message: code === 'TIMEOUT' ? 'Read timed out.' : message } }
 }
 
 async function read<T>(run: Run, file: string, args: string[], parse: (output: string) => T, fallback: T): Promise<Source<T>> {
@@ -210,16 +452,14 @@ async function read<T>(run: Run, file: string, args: string[], parse: (output: s
   }
 }
 
-async function systemRun(file: string, args: string[]): Promise<string> {
-  const { stdout } = await execFile(file, args, { timeout: 8_000, maxBuffer: 64 * 1024 })
-  return stdout
-}
+// ---------------------------------------------------------------------------
+// Collectors
 
 export async function collectSnapshot(run: Run = systemRun): Promise<RuntimeSnapshot> {
   const [profileData, leadEngineerGateway, openCode] = await Promise.all([
     read(run, 'hermes', ['profile', 'list'], (output) => ({ profiles: parseProfiles(output), gateway: parseDefaultProfileGateway(output) }), { profiles: [], gateway: 'Unknown' as GatewayState }),
     read(run, 'hermes', ['-p', 'leadengineer', 'gateway', 'status'], parseGatewayStatus, 'Unknown'),
-    read(run, 'opencode', ['--version'], (text) => text.trim() || 'Unknown', 'Unknown'),
+    read(run, 'opencode', ['--version'], (value) => value.trim().split('\n').pop()?.trim() || 'Unknown', 'Unknown'),
   ])
   const profiles: Source<Profile[]> = { availability: profileData.availability, data: profileData.data.profiles, ...(profileData.error && { error: profileData.error }) }
   const defaultGateway: Source<GatewayState> = { availability: profileData.availability, data: profileData.availability === 'available' ? profileData.data.gateway : 'Unknown', ...(profileData.error && { error: profileData.error }) }
@@ -255,10 +495,38 @@ export async function collectChannels(run: Run = systemRun): Promise<ChannelSnap
   }
 }
 
+export const INSIGHT_DAYS = 7
+
+export async function collectInsights(run: Run = systemRun): Promise<Source<UsageInsights | null>> {
+  return read<UsageInsights | null>(run, 'hermes', ['insights', '--days', String(INSIGHT_DAYS)], (output) => parseInsights(output, INSIGHT_DAYS), null)
+}
+
+export const LOG_FILES = [
+  { name: 'agent', label: 'Agent' },
+  { name: 'gateway', label: 'Gateway' },
+  { name: 'errors', label: 'Errors' },
+] as const
+
+export async function collectLogs(run: Run = systemRun): Promise<LogsSnapshot> {
+  const files = await Promise.all(LOG_FILES.map(async ({ name, label }): Promise<LogFile> => {
+    try {
+      return { name, label, source: { availability: 'available', data: parseLogLines(await run('hermes', ['logs', name, '-n', String(LOG_TAIL_LINES)])) } }
+    } catch (error) {
+      // `hermes logs` exits 1 before a log file has been created; that is an empty log, not an outage.
+      if (error instanceof CommandError && /Log file not found/i.test(error.stdout)) return { name, label, source: { availability: 'available', data: [] } }
+      return { name, label, source: failure<LogLine[]>(error, []) }
+    }
+  }))
+  return { files, fetchedAt: new Date().toISOString() }
+}
+
+// ---------------------------------------------------------------------------
+// Office
+
 const officeMetadata = [
-  { name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', aliases: ['default', 'lead agent'] },
-  { name: 'Lead Engineer', role: 'Lead Engineer', avatar: 'lead-engineer', workstation: 'Engineering desk', aliases: ['leadengineer', 'lead engineer'] },
-  { name: 'OpenCode', role: 'OpenCode', avatar: 'opencode', workstation: 'Build terminal', aliases: ['opencode'] },
+  { name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', aliases: ['default', 'lead agent', 'lead-agent', 'leadagent'] },
+  { name: 'Lead Engineer', role: 'Lead Engineer', avatar: 'lead-engineer', workstation: 'Engineering desk', aliases: ['leadengineer', 'lead engineer', 'lead-engineer'] },
+  { name: 'OpenCode', role: 'OpenCode', avatar: 'opencode', workstation: 'Build terminal', aliases: ['opencode', 'open-code'] },
 ] as const
 
 export const officeRooms = [
@@ -266,8 +534,16 @@ export const officeRooms = [
   { id: 'Lounge', label: 'Lounge', description: 'A quiet break and idle room.' },
 ] as const
 
+const ACTIVE_TASK_ORDER = ['running', 'review']
+
 function attributedTask(tasks: Task[], aliases: readonly string[]): Task | undefined {
-  return tasks.find((task) => task.assignee && aliases.includes(task.assignee.trim().toLowerCase()))
+  const mine = tasks.filter((task) => task.assignee && aliases.includes(task.assignee.trim().toLowerCase()))
+  // Prefer the task that explains current work; otherwise show the first open task.
+  for (const status of ACTIVE_TASK_ORDER) {
+    const task = mine.find((item) => item.status.toLowerCase() === status)
+    if (task) return task
+  }
+  return mine.find((task) => !['done', 'archived'].includes(task.status.toLowerCase()))
 }
 
 function taskState(task: Task | undefined): OfficeState {
@@ -283,7 +559,7 @@ function collaborationState(sessions: Session[], aliases: readonly string[]): Of
 
 function isFresh(fetchedAt: string, now: number): boolean {
   const timestamp = Date.parse(fetchedAt)
-  return Number.isFinite(timestamp) && timestamp <= now && now - timestamp <= 30_000
+  return Number.isFinite(timestamp) && timestamp <= now + 1_000 && now - timestamp <= 30_000
 }
 
 function explicitState(metadata: typeof officeMetadata[number], states: ExplicitOfficeState[], now: number): OfficeState | undefined {
@@ -307,7 +583,7 @@ export function buildOfficeSummary(stations: OfficeStation[], runtime: RuntimeSn
     idle: stations.filter((station) => station.state === 'Idle').length,
     offline: stations.filter((station) => station.state === 'Offline').length,
     unknown: stations.filter((station) => station.state === 'Unknown').length,
-    gatewaysReachable: gateways.filter((gateway) => gateway.availability === 'available').length,
+    gatewaysReachable: gateways.filter((gateway) => gateway.availability === 'available' && gateway.data === 'Running').length,
     gatewaysDeclared: gateways.length,
   }
 }
@@ -347,28 +623,75 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
   return { stations, summary: buildOfficeSummary(stations, runtime), fetchedAt }
 }
 
-export async function getSnapshot(now = Date.now()): Promise<RuntimeSnapshot> {
-  if (cache && cache.expires > now) return cache.snapshot
-  const snapshot = await collectSnapshot()
-  cache = { snapshot, expires: now + CACHE_MS }
-  return snapshot
+// ---------------------------------------------------------------------------
+// Dashboard aggregation
+
+export function buildDashboard(parts: { runtime: RuntimeSnapshot; board: TaskBoardSnapshot; calendar: CalendarSnapshot; activity: ActivitySnapshot; knowledge: KnowledgeSnapshot; channels: ChannelSnapshot; office: OfficeSnapshot; usage: Source<UsageInsights | null>; commands: CommandHealth }): DashboardSnapshot {
+  const { runtime, board, calendar, activity, knowledge, channels, office, usage, commands } = parts
+  const tasks = board.tasks.data
+  const byStatus = tasks.reduce<Record<string, number>>((counts, task) => ({ ...counts, [task.status]: (counts[task.status] ?? 0) + 1 }), {})
+  const jobs = calendar.jobs.data
+  const upcoming = jobs.filter((job) => job.status === 'active' && job.nextRun).map((job) => job.nextRun!).sort()[0]
+  const byCategory = knowledge.skills.data.reduce<Record<string, number>>((counts, skill) => {
+    const category = skill.category || 'uncategorized'
+    return { ...counts, [category]: (counts[category] ?? 0) + 1 }
+  }, {})
+  return {
+    runtime,
+    tasks: { availability: board.tasks.availability, total: tasks.length, byStatus, assigned: tasks.filter((task) => task.assignee).length },
+    calendar: { availability: calendar.jobs.availability, total: jobs.length, active: jobs.filter((job) => !job.status || job.status === 'active').length, paused: jobs.filter((job) => job.status === 'paused').length, ...(upcoming ? { nextRun: upcoming } : {}) },
+    activity: { availability: activity.sessions.availability, total: activity.sessions.data.length, ...(activity.sessions.data[0] ? { latest: activity.sessions.data[0] } : {}) },
+    knowledge: { availability: knowledge.skills.availability, total: knowledge.skills.data.length, byCategory },
+    channels: { availability: channels.channels.availability, total: channels.channels.data.length, connected: channels.channels.data.filter((channel) => channel.status === 'Connected').length, ...(channels.activeSessions !== undefined ? { activeSessions: channels.activeSessions } : {}) },
+    office: office.summary,
+    usage,
+    commands,
+    fetchedAt: new Date().toISOString(),
+  }
 }
 
-export function clearSnapshotCache(): void { cache = undefined }
+// ---------------------------------------------------------------------------
+// Cached accessors. Concurrent callers share one in-flight read per source.
 
-async function cached<T>(current: { snapshot: T; expires: number } | undefined, set: (value: { snapshot: T; expires: number }) => void, collect: () => Promise<T>, now: number): Promise<T> {
-  if (current && current.expires > now) return current.snapshot
-  const snapshot = await collect()
-  set({ snapshot, expires: now + CACHE_MS })
-  return snapshot
+function cachedSource<T>(collect: () => Promise<T>, ttl = CACHE_MS) {
+  let entry: { value: T; expires: number } | undefined
+  let inflight: Promise<T> | undefined
+  const get = (now = Date.now()): Promise<T> => {
+    if (entry && entry.expires > now) return Promise.resolve(entry.value)
+    inflight ??= collect().then((value) => {
+      entry = { value, expires: Date.now() + ttl }
+      return value
+    }).finally(() => { inflight = undefined })
+    return inflight
+  }
+  return Object.assign(get, { clear: () => { entry = undefined } })
 }
 
-export function getTaskBoard(now = Date.now()): Promise<TaskBoardSnapshot> { return cached(taskBoardCache, (value) => { taskBoardCache = value }, collectTaskBoard, now) }
-export function getCalendar(now = Date.now()): Promise<CalendarSnapshot> { return cached(calendarCache, (value) => { calendarCache = value }, collectCalendar, now) }
-export function getActivity(now = Date.now()): Promise<ActivitySnapshot> { return cached(activityCache, (value) => { activityCache = value }, collectActivity, now) }
-export function getKnowledge(now = Date.now()): Promise<KnowledgeSnapshot> { return cached(knowledgeCache, (value) => { knowledgeCache = value }, collectKnowledge, now) }
-export function getChannels(now = Date.now()): Promise<ChannelSnapshot> { return cached(channelCache, (value) => { channelCache = value }, collectChannels, now) }
+const runtimeSource = cachedSource(() => collectSnapshot())
+const taskBoardSource = cachedSource(() => collectTaskBoard())
+const calendarSource = cachedSource(() => collectCalendar())
+const activitySource = cachedSource(() => collectActivity())
+const knowledgeSource = cachedSource(() => collectKnowledge())
+const channelSource = cachedSource(() => collectChannels())
+const insightsSource = cachedSource(() => collectInsights(), INSIGHTS_CACHE_MS)
+const logsSource = cachedSource(() => collectLogs(), 5_000)
+
+export function getSnapshot(now = Date.now()): Promise<RuntimeSnapshot> { return runtimeSource(now) }
+export function clearSnapshotCache(): void { runtimeSource.clear() }
+export function getTaskBoard(now = Date.now()): Promise<TaskBoardSnapshot> { return taskBoardSource(now) }
+export function getCalendar(now = Date.now()): Promise<CalendarSnapshot> { return calendarSource(now) }
+export function getActivity(now = Date.now()): Promise<ActivitySnapshot> { return activitySource(now) }
+export function getKnowledge(now = Date.now()): Promise<KnowledgeSnapshot> { return knowledgeSource(now) }
+export function getChannels(now = Date.now()): Promise<ChannelSnapshot> { return channelSource(now) }
+export function getLogs(now = Date.now()): Promise<LogsSnapshot> { return logsSource(now) }
+
 export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
   const [runtime, board, activity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now)])
   return buildOfficeSnapshot(runtime, board, activity)
+}
+
+export async function getDashboard(now = Date.now()): Promise<DashboardSnapshot> {
+  const [runtime, board, calendar, activity, knowledge, channels, usage] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), insightsSource(now)])
+  const office = buildOfficeSnapshot(runtime, board, activity)
+  return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, usage, commands: commandHealth() })
 }

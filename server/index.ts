@@ -1,26 +1,45 @@
-import express from 'express'
-import { getActivity, getCalendar, getChannels, getKnowledge, getOffice, getSnapshot, getTaskBoard } from './mission-control.js'
+import { existsSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import express, { type NextFunction, type Request, type Response } from 'express'
+import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard } from './mission-control.js'
+
+const HOST = '127.0.0.1'
+const PORT = Number(process.env.MISSION_CONTROL_PORT) || 3001
+const distDirectory = fileURLToPath(new URL('../dist', import.meta.url))
 
 const app = express()
-app.get('/api/runtime', async (_request, response) => {
-  response.json(await getSnapshot())
+app.disable('x-powered-by')
+app.use('/api', (_request, response, next) => {
+  response.set('Cache-Control', 'no-store')
+  next()
 })
-app.get('/api/tasks', async (_request, response) => {
-  response.json(await getTaskBoard())
+
+const routes: Record<string, () => Promise<unknown> | unknown> = {
+  '/api/runtime': () => getSnapshot(),
+  '/api/dashboard': () => getDashboard(),
+  '/api/tasks': () => getTaskBoard(),
+  '/api/calendar': () => getCalendar(),
+  '/api/activity': () => getActivity(),
+  '/api/knowledge': () => getKnowledge(),
+  '/api/office': () => getOffice(),
+  '/api/channels': () => getChannels(),
+  '/api/logs': () => getLogs(),
+  '/api/command-log': () => getCommandLog(),
+}
+for (const [path, handler] of Object.entries(routes)) {
+  app.get(path, async (_request, response) => { response.json(await handler()) })
+}
+app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }) })
+
+if (existsSync(distDirectory)) {
+  app.use(express.static(distDirectory))
+  app.get(/^(?!\/api\/).*/, (_request, response) => { response.sendFile('index.html', { root: distDirectory }) })
+}
+
+app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+  void _next
+  console.error('Mission Control request failed:', error instanceof Error ? error.message : error)
+  response.status(500).json({ error: 'Internal error' })
 })
-app.get('/api/calendar', async (_request, response) => {
-  response.json(await getCalendar())
-})
-app.get('/api/activity', async (_request, response) => {
-  response.json(await getActivity())
-})
-app.get('/api/knowledge', async (_request, response) => {
-  response.json(await getKnowledge())
-})
-app.get('/api/office', async (_request, response) => {
-  response.json(await getOffice())
-})
-app.get('/api/channels', async (_request, response) => {
-  response.json(await getChannels())
-})
-app.listen(3001, '127.0.0.1', () => console.log('Mission Control API listening on http://127.0.0.1:3001'))
+
+app.listen(PORT, HOST, () => console.log(`Mission Control listening on http://${HOST}:${PORT}${existsSync(distDirectory) ? ' (serving built UI)' : ' (API only; run the Vite dev server for the UI)'}`))
