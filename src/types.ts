@@ -7,9 +7,9 @@ export interface RuntimeSnapshot {
   openCode: Source<string>
   fetchedAt: string
 }
-export interface Task { title: string; status: string; id?: string; assignee?: string }
-export interface ScheduledJob { name: string; schedule: string; nextRun?: string; status?: string }
-export interface Session { title: string; preview: string; lastActive: string; id?: string; actor?: string; active?: boolean }
+export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number }
+export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean }
+export interface Session { title: string; preview: string; lastActive: string; id?: string; workspace?: string; source?: string; actor?: string; active?: boolean }
 export interface Skill { name: string; category: string; source: string; trust: string; status: 'enabled' }
 export interface TaskBoardSnapshot { tasks: Source<Task[]>; fetchedAt: string }
 export interface CalendarSnapshot { jobs: Source<ScheduledJob[]>; fetchedAt: string }
@@ -34,7 +34,20 @@ export interface OfficeStation {
 }
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
 export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSummary; fetchedAt: string }
+export interface UsageInsights {
+  days: number
+  sessions: number
+  messages: number
+  toolCalls: number
+  inputTokens: number
+  outputTokens: number
+  totalTokens: number
+  estimatedCost?: string
+  models: { model: string; sessions: number; tokens: number }[]
+  tools: { tool: string; calls: number }[]
+}
 export interface CountSource { availability: Availability; total: number }
+export interface CommandHealth { total: number; failed: number; averageMs: number }
 export interface DashboardSnapshot {
   runtime: RuntimeSnapshot
   tasks: CountSource & { byStatus: Record<string, number>; assigned: number }
@@ -43,11 +56,11 @@ export interface DashboardSnapshot {
   knowledge: CountSource & { byCategory: Record<string, number> }
   channels: CountSource & { connected: number; activeSessions?: number }
   office: OfficeSummary
+  usage: Source<UsageInsights | null>
   commands: CommandHealth
   fetchedAt: string
 }
 export interface CommandLogEntry { command: string; ok: boolean; durationMs: number; at: string; error?: string }
-export interface CommandHealth { total: number; failed: number; averageMs: number }
 export interface CommandLogSnapshot { entries: CommandLogEntry[]; health: CommandHealth; fetchedAt: string }
 export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'OTHER'
 export interface LogLine { text: string; level: LogLevel }

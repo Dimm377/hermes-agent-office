@@ -2,7 +2,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { Office } from './App.tsx'
+import { Office } from './pages/Office.tsx'
 import type { ActivitySnapshot, ChannelSnapshot, OfficeSnapshot } from './types.ts'
 
 const testEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }

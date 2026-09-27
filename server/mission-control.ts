@@ -85,7 +85,8 @@ export interface LogLine { text: string; level: LogLevel }
 export interface LogFile { name: string; label: string; source: Source<LogLine[]> }
 export interface LogsSnapshot { files: LogFile[]; fetchedAt: string }
 
-type Run = (file: string, args: string[]) => Promise<string>
+type Run = (file: string, args: string[], options?: RunOptions) => Promise<string>
+interface RunOptions { /** stdout of a non-zero exit that is an expected empty state, not a failure. */ benign?: RegExp }
 
 /** Error thrown by the command runner. Carries stdout so a caller can recognise a benign non-zero exit. */
 export class CommandError extends Error {
@@ -407,7 +408,7 @@ function describeFailure(error: unknown): CommandError {
   return new CommandError('Read command was unavailable.', 'COMMAND_FAILED', stdout)
 }
 
-async function systemRun(file: string, args: string[]): Promise<string> {
+async function systemRun(file: string, args: string[], options: RunOptions = {}): Promise<string> {
   const started = Date.now()
   const command = [file, ...args].join(' ')
   try {
@@ -420,7 +421,8 @@ async function systemRun(file: string, args: string[]): Promise<string> {
     return stdout
   } catch (error) {
     const failure = describeFailure(error)
-    recordCommand({ command, ok: false, durationMs: Date.now() - started, at: new Date(started).toISOString(), error: failure.message })
+    const benign = options.benign?.test(failure.stdout) ?? false
+    recordCommand({ command, ok: benign, durationMs: Date.now() - started, at: new Date(started).toISOString(), ...(benign ? {} : { error: failure.message }) })
     throw failure
   }
 }
@@ -507,13 +509,15 @@ export const LOG_FILES = [
   { name: 'errors', label: 'Errors' },
 ] as const
 
+const LOG_MISSING = /Log file not found/i
+
 export async function collectLogs(run: Run = systemRun): Promise<LogsSnapshot> {
   const files = await Promise.all(LOG_FILES.map(async ({ name, label }): Promise<LogFile> => {
     try {
-      return { name, label, source: { availability: 'available', data: parseLogLines(await run('hermes', ['logs', name, '-n', String(LOG_TAIL_LINES)])) } }
+      return { name, label, source: { availability: 'available', data: parseLogLines(await run('hermes', ['logs', name, '-n', String(LOG_TAIL_LINES)], { benign: LOG_MISSING })) } }
     } catch (error) {
       // `hermes logs` exits 1 before a log file has been created; that is an empty log, not an outage.
-      if (error instanceof CommandError && /Log file not found/i.test(error.stdout)) return { name, label, source: { availability: 'available', data: [] } }
+      if (error instanceof CommandError && LOG_MISSING.test(error.stdout)) return { name, label, source: { availability: 'available', data: [] } }
       return { name, label, source: failure<LogLine[]>(error, []) }
     }
   }))

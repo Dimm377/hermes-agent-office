@@ -14,20 +14,25 @@ app.use('/api', (_request, response, next) => {
   next()
 })
 
-const routes: Record<string, () => Promise<unknown> | unknown> = {
-  '/api/runtime': () => getSnapshot(),
-  '/api/dashboard': () => getDashboard(),
-  '/api/tasks': () => getTaskBoard(),
-  '/api/calendar': () => getCalendar(),
-  '/api/activity': () => getActivity(),
-  '/api/knowledge': () => getKnowledge(),
-  '/api/office': () => getOffice(),
-  '/api/channels': () => getChannels(),
-  '/api/logs': () => getLogs(),
+// `?fresh=1` (manual refresh) bypasses the 10s cache for anything older than 2s.
+const FRESH_WINDOW_MS = 8_000
+const routes: Record<string, (now: number) => Promise<unknown> | unknown> = {
+  '/api/runtime': getSnapshot,
+  '/api/dashboard': getDashboard,
+  '/api/tasks': getTaskBoard,
+  '/api/calendar': getCalendar,
+  '/api/activity': getActivity,
+  '/api/knowledge': getKnowledge,
+  '/api/office': getOffice,
+  '/api/channels': getChannels,
+  '/api/logs': getLogs,
   '/api/command-log': () => getCommandLog(),
 }
 for (const [path, handler] of Object.entries(routes)) {
-  app.get(path, async (_request, response) => { response.json(await handler()) })
+  app.get(path, async (request, response) => {
+    const now = Date.now() + (request.query.fresh === '1' ? FRESH_WINDOW_MS : 0)
+    response.json(await handler(now))
+  })
 }
 app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }) })
 
