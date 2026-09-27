@@ -8,7 +8,7 @@ describe('OfficeDetail', () => {
     const station: OfficeStation = {
       name: 'Lead Engineer', role: 'Lead Engineer', avatar: 'LE', workstation: 'Engineering desk', room: 'Workspace', roomPosition: 'review-desk',
       state: 'Reviewing', currentTask: 'Review office behavior', recentActivity: 'No attributed recent activity',
-      provenance: 'Gateway Running; explicit state records: none; Kanban: available; activity: available',
+      activity: 'Reviewing: Review office behavior', seat: 2, provenance: 'Gateway Running; explicit state records: none; Kanban: available; activity: available',
       freshness: 'Runtime 2026-09-27T12:00:00.000Z; Kanban 2026-09-27T12:00:00.000Z; activity 2026-09-27T12:00:00.000Z',
     }
 
@@ -32,7 +32,7 @@ describe('Office characters', () => {
     const station: OfficeStation = {
       name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', room: 'Lounge', roomPosition: 'lounge-seat-1',
       state: 'Idle', currentTask: 'No attributed task', recentActivity: 'No attributed recent activity',
-      provenance: 'Mission Control managed-idle placement policy', freshness: 'Runtime current',
+      activity: 'On a break', seat: 1, provenance: 'Mission Control managed-idle placement policy', freshness: 'Runtime current',
     }
 
     const markup = renderToStaticMarkup(<OfficeDetail station={station} onClose={vi.fn()}/>)

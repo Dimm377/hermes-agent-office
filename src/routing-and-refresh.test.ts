@@ -10,6 +10,8 @@ describe('hash routing', () => {
     expect(pageFromHash('#dashboard')).toBe('Dashboard')
     expect(pageFromHash('#/nope')).toBe('Dashboard')
     expect(navigation).toContain('Logs')
+    expect(pageFromHash('#/knowledge')).toBe('Folders')
+    expect(pageFromHash('#/folders/leadengineer')).toBe('Folders')
   })
 })
 

@@ -34,7 +34,7 @@ export function Dashboard({ dashboard, pending = false, onNavigate }: { dashboar
       <StatTile label="Open tasks" value={tasks.availability === 'available' ? formatNumber(openTasks) : 'Not Available'} detail={tasks.availability === 'available' ? `${formatNumber(tasks.total)} total · ${tasks.byStatus.running ?? 0} running` : undefined} onClick={go('Task Board')}/>
       <StatTile label="Scheduled jobs" value={availableCount(calendar)} detail={calendar.availability === 'available' ? `${calendar.active} active · ${calendar.paused} paused` : undefined} onClick={go('Calendar')}/>
       <StatTile label="Recent sessions" value={availableCount(activity)} detail={channels.activeSessions !== undefined ? `${channels.activeSessions} active now` : 'Last 20 listed'} onClick={go('Activity')}/>
-      <StatTile label="Enabled skills" value={availableCount(knowledge)} detail={knowledge.availability === 'available' ? `${Object.keys(knowledge.byCategory).length} categories` : undefined} onClick={go('Knowledge')}/>
+      <StatTile label="Enabled skills" value={availableCount(knowledge)} detail={knowledge.availability === 'available' ? `${Object.keys(knowledge.byCategory).length} categories` : undefined} onClick={go('Folders')}/>
       <StatTile label="Channels" value={availableCount(channels, 'configured')} detail={channels.availability === 'available' ? `${channels.connected} connected` : undefined} onClick={go('Office')}/>
       <StatTile label="CLI reads" value={formatNumber(commands.total)} detail={`${commands.failed} failed · ${commands.averageMs} ms avg`} onClick={go('Logs')}/>
     </section>

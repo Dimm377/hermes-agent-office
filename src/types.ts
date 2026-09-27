@@ -29,6 +29,8 @@ export interface OfficeStation {
   state: OfficeState
   currentTask: string
   recentActivity: string
+  activity: string
+  seat: number
   provenance: string
   freshness: string
 }
@@ -66,3 +68,8 @@ export type LogLevel = 'ERROR' | 'WARNING' | 'INFO' | 'DEBUG' | 'OTHER'
 export interface LogLine { text: string; level: LogLevel }
 export interface LogFile { name: string; label: string; source: Source<LogLine[]> }
 export interface LogsSnapshot { files: LogFile[]; fetchedAt: string }
+export interface FolderAgent { profile: string; label: string; available: boolean }
+export interface FolderAgentsSnapshot { agents: FolderAgent[]; fetchedAt: string }
+export interface FolderEntry { name: string; path: string; type: 'dir' | 'file'; size: number; modified: string; sensitive: boolean }
+export interface FolderListing { profile: string; path: string; entries: FolderEntry[]; truncated: boolean; hiddenCount: number }
+export interface FolderFile { profile: string; path: string; size: number; modified: string; kind: 'text' | 'binary' | 'sensitive' | 'too-large'; content?: string; truncated?: boolean; redactions?: number }

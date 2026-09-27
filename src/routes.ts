@@ -1,4 +1,4 @@
-export const navigation = ['Dashboard', 'Agents', 'Office', 'Task Board', 'Calendar', 'Activity', 'Knowledge', 'Logs'] as const
+export const navigation = ['Dashboard', 'Agents', 'Office', 'Task Board', 'Calendar', 'Activity', 'Folders', 'Logs'] as const
 export type Page = typeof navigation[number]
 
 export function pageSlug(page: Page): string {
@@ -6,6 +6,7 @@ export function pageSlug(page: Page): string {
 }
 
 export function pageFromHash(hash: string): Page {
-  const slug = hash.replace(/^#\/?/, '').toLowerCase()
+  const slug = hash.replace(/^#\/?/, '').split('/')[0].toLowerCase()
+  if (slug === 'knowledge') return 'Folders'
   return navigation.find((page) => pageSlug(page) === slug) ?? 'Dashboard'
 }
