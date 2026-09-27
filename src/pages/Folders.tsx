@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { formatBytes, formatDateTime } from '../format.ts'
 import { usePolling } from '../polling.ts'
-import { loadSnapshot, type RequestState } from '../request-state.ts'
+import type { RequestState } from '../request-state.ts'
 import type { FolderAgent, FolderAgentsSnapshot, FolderFile, FolderListing } from '../types.ts'
 import { EmptyState, LoadingState, PageTitle, SearchInput, SourceStatus, Unavailable } from '../ui.tsx'
 import { PixelCharacter } from './Office.tsx'
@@ -12,23 +12,37 @@ function folderUrl(agent: string, kind: 'list' | 'file', path: string): string {
   return `/api/folders/${encodeURIComponent(agent)}/${kind}?path=${encodeURIComponent(path)}`
 }
 
-function useRequest<T>(url: string | undefined): RequestState<T> & { reload: () => void } {
-  const [state, setState] = useState<RequestState<T>>({ status: 'pending' })
+type FolderRequest<T> = RequestState<T> & { error?: string; reload: () => void }
+
+/** Like loadSnapshot, but keeps the server's explanation (permission denied, not found…). */
+async function loadWithReason<T>(url: string): Promise<RequestState<T> & { error?: string }> {
+  try {
+    const response = await fetch(url)
+    const body = await response.json().catch(() => undefined) as (T & { error?: unknown }) | undefined
+    if (response.ok && body) return { status: 'ready', data: body }
+    return { status: 'failed', error: typeof body?.error === 'string' ? body.error : `Request failed (HTTP ${response.status}).` }
+  } catch {
+    return { status: 'failed', error: 'The Mission Control API could not be reached.' }
+  }
+}
+
+function useRequest<T>(url: string | undefined): FolderRequest<T> {
+  const [state, setState] = useState<RequestState<T> & { error?: string }>({ status: 'pending' })
   const [nonce, setNonce] = useState(0)
   useEffect(() => {
     if (!url) return
     let active = true
     setState({ status: 'pending' })
-    void loadSnapshot<T>(url).then((next) => { if (active) setState(next) })
+    void loadWithReason<T>(url).then((next) => { if (active) setState(next) })
     return () => { active = false }
   }, [url, nonce])
-  return { ...state, reload: () => setNonce((value) => value + 1) } as RequestState<T> & { reload: () => void }
+  return { ...state, reload: () => setNonce((value) => value + 1) } as FolderRequest<T>
 }
 
 function FileViewer({ agent, path }: { agent: string; path: string }) {
   const file = useRequest<FolderFile>(folderUrl(agent, 'file', path))
   if (file.status === 'pending') return <LoadingState message={`Opening ${path}...`}/>
-  if (file.status === 'failed') return <EmptyState title="Cannot open file">The file could not be read. It may have been moved, or it is outside the profile folder.</EmptyState>
+  if (file.status === 'failed') return <EmptyState title="Cannot open file">{file.error ?? 'The file could not be read.'}</EmptyState>
   const data = file.data
   return <section className="file-viewer" aria-label={`Contents of ${data.path}`}>
     <header className="file-head"><div><p className="eyebrow">FILE</p><h2>{data.path.split('/').pop()}</h2></div><dl><div><dt>Size</dt><dd>{formatBytes(data.size)}</dd></div><div><dt>Modified</dt><dd>{formatDateTime(data.modified)}</dd></div></dl></header>
@@ -61,13 +75,13 @@ function Browser({ agent, onBack }: { agent: FolderAgent; onBack: () => void }) 
     <section className="folder-browser">
       <div className="file-list-pane">
         <SearchInput value={query} onChange={setQuery} label="Filter this folder"/>
-        {listing.status === 'pending' ? <p className="muted">Loading folder...</p> : listing.status === 'failed' ? <p className="muted">This folder could not be read.</p> : <>
+        {listing.status === 'pending' ? <p className="muted">Loading folder...</p> : listing.status === 'failed' ? <div className="file-notice locked" role="alert"><strong>This folder could not be read.</strong><br/>{listing.error}</div> : <>
           <ul className="file-list" aria-label="Folder contents">
             {directory && <li><button type="button" className="file-row" onClick={() => open(parts.slice(0, -1).join('/'))}><span className="file-icon">↰</span><span className="file-name">..</span></button></li>}
             {entries.map((entry) => <li key={entry.path}><button type="button" className={`file-row${selected === entry.path ? ' active' : ''}`} aria-current={selected === entry.path ? 'true' : undefined} onClick={() => entry.type === 'dir' ? open(entry.path) : setSelected(entry.path)}>
-              <span className="file-icon" aria-hidden="true">{entry.type === 'dir' ? '📁' : entry.sensitive ? '🔒' : '📄'}</span>
+              <span className="file-icon" aria-hidden="true">{entry.unreadable ? '⛔' : entry.type === 'dir' ? '📁' : entry.sensitive ? '🔒' : '📄'}</span>
               <span className="file-name">{entry.name}</span>
-              <span className="file-size">{entry.type === 'dir' ? '' : formatBytes(entry.size)}</span>
+              <span className="file-size">{entry.unreadable ? 'no access' : entry.type === 'dir' ? '' : formatBytes(entry.size)}</span>
             </button></li>)}
           </ul>
           {entries.length === 0 && <p className="muted">{needle ? 'No matching files.' : 'This folder is empty.'}</p>}
@@ -91,7 +105,7 @@ export function Folders() {
     <Unavailable source={source} request={snapshot}/>
     {snapshot.status === 'pending' ? <LoadingState message="Finding agent folders..."/> : agent ? <Browser key={agent.profile} agent={agent} onBack={() => setOpenAgent(undefined)}/> : data && <section className="folder-agents">{data.agents.map((item) => <button type="button" key={item.profile} className="folder-agent" disabled={!item.available} onClick={() => setOpenAgent(item.profile)}>
       <span className="folder-glyph" aria-hidden="true"><PixelCharacter avatar={AVATARS[item.profile] ?? 'opencode'}/></span>
-      <span className="folder-meta"><strong>{item.label}</strong><code className="folder-path">{item.path}</code><small>{item.available ? 'Open folder →' : item.reason ?? 'Folder not available'}</small></span>
+      <span className="folder-meta"><strong>{item.label}</strong><code className="folder-path">{item.path}</code><small>{item.available ? 'Open folder →' : item.reason ?? 'Folder not available'}</small>{item.warning && <small className="text-bad">⚠ {item.warning}</small>}</span>
     </button>)}</section>}
   </>
 }

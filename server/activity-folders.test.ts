@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { excludedFor, FolderError, hermesRoot, listFolder, publicAgent, readFolderFile, resolveAgentFolders, safeRelativePath } from './folders.js'
+import { excludedFor, FolderError, fsError, hermesRoot, listFolder, publicAgent, readFolderFile, resolveAgentFolders, safeRelativePath } from './folders.js'
 import { buildOfficeSnapshot, collectAgentActivity, CommandError, parseRecentActivity, type AgentActivitySnapshot } from './mission-control.js'
 
 const at = '2026-09-27T12:00:00.000Z'
@@ -163,5 +163,26 @@ describe('agent folders', () => {
     await expect(readFolderFile(lead, '../leadengineer/SOUL.md')).rejects.toMatchObject({ status: 403 })
     await expect(readFolderFile(lead, '../../config.yaml')).rejects.toBeInstanceOf(FolderError)
     expect(safeRelativePath('/memories//')).toBe('memories')
+  })
+
+  it('explains permission and missing-file errors instead of failing generically', () => {
+    const denied = fsError(Object.assign(new Error('x'), { code: 'EACCES' }), 'the agent folder', '/home/ubuntu/.hermes/profiles/leadengineer')
+    expect(denied.status).toBe(403)
+    expect(denied.message).toMatch(/^Permission denied: Mission Control runs as ".+" and cannot read the agent folder\./)
+    expect(denied.message).toContain('/home/ubuntu/.hermes/profiles/leadengineer')
+    expect(fsError(Object.assign(new Error('x'), { code: 'ENOENT' }), '"notes.md"')).toMatchObject({ status: 404, message: '"notes.md" was not found.' })
+    expect(fsError(Object.assign(new Error('x'), { code: 'EIO' }), 'the agent folder')).toMatchObject({ status: 500, message: 'Could not read the agent folder (EIO).' })
+  })
+
+  it('lists large folders quickly and in order, capped at 500 entries', async () => {
+    const big = mkdtempSync(path.join(tmpdir(), 'mc-big-'))
+    for (let index = 0; index < 650; index += 1) writeFileSync(path.join(big, `session_${String(index).padStart(4, '0')}.json`), '{}')
+    mkdirSync(path.join(big, 'archive'))
+    const listing = await listFolder({ profile: 'leadengineer', directory: big }, '')
+    expect(listing.entries).toHaveLength(500)
+    expect(listing.truncated).toBe(true)
+    expect(listing.entries[0]).toMatchObject({ name: 'archive', type: 'dir' })
+    expect(listing.entries[1]).toMatchObject({ name: 'session_0000.json', type: 'file', size: 2 })
+    rmSync(big, { recursive: true, force: true })
   })
 })

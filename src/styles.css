@@ -460,3 +460,5 @@ main { max-width: 1680px; }
 .task-timeline b { font-size: 13px; }
 .task-timeline p { color: var(--text-muted); font-size: 13px; margin: 0; white-space: pre-wrap; }
 .task-timeline code { justify-self: start; overflow-wrap: anywhere; }
+.file-notice strong { color: var(--text); font: 600 13px inherit; }
+.file-notice { overflow-wrap: anywhere; }
