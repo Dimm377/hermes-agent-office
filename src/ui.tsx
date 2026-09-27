@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { formatTime } from './format.ts'
 import type { Polled } from './polling.ts'
 import type { GatewayState, Source } from './types.ts'
@@ -38,4 +38,29 @@ export function Unavailable({ source, request }: { source?: Source<unknown>; req
 
 export function SearchInput({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) {
   return <input className="search-input" type="search" value={value} onChange={(event) => onChange(event.target.value)} placeholder={label} aria-label={label}/>
+}
+
+/** Modal dialog: focus moves in, Tab is contained, Escape or a backdrop click closes it. */
+export function Dialog({ labelledBy, onClose, closeLabel, className = '', children }: { labelledBy: string; onClose: () => void; closeLabel: string; className?: string; children: ReactNode }) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLElement>(null)
+  useEffect(() => { closeRef.current?.focus() }, [])
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Escape') { onClose(); return }
+    if (event.key !== 'Tab') return
+    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+    if (!focusable?.length) { event.preventDefault(); return }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey ? document.activeElement === first : document.activeElement === last) {
+      event.preventDefault()
+      ;(event.shiftKey ? last : first).focus()
+    }
+  }
+  return <div className="office-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+    <section className={`office-detail ${className}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onKeyDown={onKeyDown}>
+      <button className="office-close" ref={closeRef} onClick={onClose} aria-label={closeLabel}>Close</button>
+      {children}
+    </section>
+  </div>
 }

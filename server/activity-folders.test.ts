@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { FolderError, folderAgents, hermesRoot, listFolder, readFolderFile, safeRelativePath } from './folders.js'
+import { excludedFor, FolderError, hermesRoot, listFolder, publicAgent, readFolderFile, resolveAgentFolders, safeRelativePath } from './folders.js'
 import { buildOfficeSnapshot, collectAgentActivity, CommandError, parseRecentActivity, type AgentActivitySnapshot } from './mission-control.js'
 
 const at = '2026-09-27T12:00:00.000Z'
@@ -75,27 +75,29 @@ describe('office placement from live activity', () => {
   })
 })
 
-describe('profile folders', () => {
-  let root: string
+describe('agent folders', () => {
+  let home: string
   let outside: string
+  const root = () => path.join(home, '.hermes')
+  const write = (file: string, content: string | Buffer) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, content) }
   beforeAll(() => {
-    root = mkdtempSync(path.join(tmpdir(), 'mc-hermes-'))
+    home = mkdtempSync(path.join(tmpdir(), 'mc-home-'))
     outside = mkdtempSync(path.join(tmpdir(), 'mc-outside-'))
     writeFileSync(path.join(outside, 'secret.txt'), 'outside')
-    writeFileSync(path.join(root, 'SOUL.md'), '# Soul\nBe helpful.\n')
-    writeFileSync(path.join(root, 'config.yaml'), 'model: x\nmax_tokens: 4096\napi_key: sk-live-abcdefghijklmnop\n')
-    writeFileSync(path.join(root, '.env'), 'OPENAI_API_KEY=sk-should-never-be-read\n')
-    writeFileSync(path.join(root, 'state.db'), Buffer.from([0, 1, 2, 3]))
-    writeFileSync(path.join(root, 'image.bin'), Buffer.from([0, 0, 0, 1, 2]))
-    mkdirSync(path.join(root, 'memories'))
-    writeFileSync(path.join(root, 'memories', 'MEMORY.md'), 'remember this')
-    mkdirSync(path.join(root, 'profiles', 'leadengineer'), { recursive: true })
-    writeFileSync(path.join(root, 'profiles', 'leadengineer', 'SOUL.md'), 'engineer')
-    mkdirSync(path.join(root, 'hermes-agent'))
-    symlinkSync(outside, path.join(root, 'escape'))
-    symlinkSync(path.join(outside, 'secret.txt'), path.join(root, 'escape.txt'))
+    // Layout from a real install: every profile, including default, has its own folder.
+    write(path.join(root(), 'config.yaml'), 'root: shared\n')
+    write(path.join(root(), 'profiles', 'default', 'SOUL.md'), '# Soul\nBe helpful.\n')
+    write(path.join(root(), 'profiles', 'default', 'config.yaml'), 'model: x\nmax_tokens: 4096\napi_key: sk-live-abcdefghijklmnop\n')
+    write(path.join(root(), 'profiles', 'default', '.env'), 'OPENAI_API_KEY=sk-should-never-be-read\n')
+    write(path.join(root(), 'profiles', 'default', 'state.db'), Buffer.from([0, 1, 2, 3]))
+    write(path.join(root(), 'profiles', 'default', 'image.bin'), Buffer.from([0, 0, 0, 1, 2]))
+    write(path.join(root(), 'profiles', 'default', 'memories', 'MEMORY.md'), 'remember this')
+    write(path.join(root(), 'profiles', 'leadengineer', 'SOUL.md'), 'engineer')
+    write(path.join(home, '.opencode', 'config.yaml'), 'theme: dark\n')
+    symlinkSync(outside, path.join(root(), 'profiles', 'default', 'escape'))
+    symlinkSync(path.join(outside, 'secret.txt'), path.join(root(), 'profiles', 'default', 'escape.txt'))
   })
-  afterAll(() => { rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }) })
+  afterAll(() => { rmSync(home, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }) })
 
   it('resolves the Hermes root like Hermes does', () => {
     expect(hermesRoot({}, '/home/u')).toBe('/home/u/.hermes')
@@ -104,38 +106,62 @@ describe('profile folders', () => {
     expect(hermesRoot({ HERMES_HOME: '/opt/data' }, '/home/u')).toBe('/opt/data')
   })
 
-  it('lists folders first, hides other profiles and the install, and flags sensitive files', async () => {
-    const listing = await listFolder('default', '', root)
-    expect(listing.entries.map((entry) => entry.name)).toEqual(['escape', 'memories', '.env', 'config.yaml', 'escape.txt', 'image.bin', 'SOUL.md', 'state.db'])
-    expect(listing.hiddenCount).toBe(2)
-    expect(listing.entries.find((entry) => entry.name === '.env')?.sensitive).toBe(true)
-    expect(listing.entries.find((entry) => entry.name === 'state.db')?.sensitive).toBe(true)
-    expect((await listFolder('leadengineer', '', root)).entries.map((entry) => entry.name)).toEqual(['SOUL.md'])
+  it('gives every agent its own folder, never the shared Hermes root', async () => {
+    const folders = await resolveAgentFolders(['default', 'leadengineer', 'research'], {}, home)
+    expect(folders.map((folder) => [folder.label, folder.path, folder.available])).toEqual([
+      ['Lead Agent', '~/.hermes/profiles/default', true],
+      ['Lead Engineer', '~/.hermes/profiles/leadengineer', true],
+      ['research', '~/.hermes/profiles/research', false],
+      ['OpenCode', '~/.opencode', true],
+    ])
+    expect(folders.map(publicAgent).every((agent) => !('directory' in agent))).toBe(true)
+    const lead = await listFolder(folders[0], '', excludedFor(folders[0], folders))
+    const engineer = await listFolder(folders[1], '', excludedFor(folders[1], folders))
+    const openCode = await listFolder(folders[3], '', excludedFor(folders[3], folders))
+    expect(lead.entries.map((entry) => entry.name)).toEqual(['escape', 'memories', '.env', 'config.yaml', 'escape.txt', 'image.bin', 'SOUL.md', 'state.db'])
+    expect(engineer.entries.map((entry) => entry.name)).toEqual(['SOUL.md'])
+    expect(openCode.entries.map((entry) => entry.name)).toEqual(['config.yaml'])
+    expect(lead.entries.find((entry) => entry.name === '.env')?.sensitive).toBe(true)
+  })
+
+  it('falls back to the Hermes root for default and hides the other profiles inside it', async () => {
+    const stock = mkdtempSync(path.join(tmpdir(), 'mc-stock-'))
+    write(path.join(stock, '.hermes', 'SOUL.md'), 'root soul')
+    write(path.join(stock, '.hermes', 'profiles', 'leadengineer', 'SOUL.md'), 'engineer')
+    const folders = await resolveAgentFolders([], {}, stock)
+    expect(folders[0]).toMatchObject({ profile: 'default', path: '~/.hermes', available: true })
+    const listing = await listFolder(folders[0], '', excludedFor(folders[0], folders))
+    expect(listing.entries.map((entry) => entry.name)).toEqual(['profiles', 'SOUL.md'])
+    await expect(listFolder(folders[0], 'profiles/leadengineer', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
+    await expect(readFolderFile(folders[0], 'profiles/leadengineer/SOUL.md', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
+    rmSync(stock, { recursive: true, force: true })
+  })
+
+  it('refuses a non-default agent that resolves to the root or to another agent', async () => {
+    const shared = mkdtempSync(path.join(tmpdir(), 'mc-shared-'))
+    mkdirSync(path.join(shared, '.hermes', 'profiles'), { recursive: true })
+    symlinkSync(path.join(shared, '.hermes'), path.join(shared, '.hermes', 'profiles', 'leadengineer'))
+    const folders = await resolveAgentFolders([], {}, shared)
+    expect(folders[1]).toMatchObject({ profile: 'leadengineer', available: false, reason: 'Resolves to the shared Hermes root, not its own folder' })
+    rmSync(shared, { recursive: true, force: true })
   })
 
   it('reads text with redaction and refuses secrets, binaries and escapes', async () => {
-    expect(await readFolderFile('default', 'SOUL.md', root)).toMatchObject({ kind: 'text', content: '# Soul\nBe helpful.\n' })
-    const config = await readFolderFile('default', 'config.yaml', root)
+    const folders = await resolveAgentFolders([], {}, home)
+    const lead = folders[0]
+    expect(await readFolderFile(lead, 'SOUL.md')).toMatchObject({ kind: 'text', content: '# Soul\nBe helpful.\n' })
+    const config = await readFolderFile(lead, 'config.yaml')
     expect(config.content).toContain('max_tokens: 4096')
     expect(config.content).not.toContain('sk-live')
     expect(config.redactions).toBe(1)
-    const env = await readFolderFile('default', '.env', root)
+    const env = await readFolderFile(lead, '.env')
     expect(env).toMatchObject({ kind: 'sensitive' })
     expect(env.content).toBeUndefined()
-    expect((await readFolderFile('default', 'image.bin', root)).kind).toBe('binary')
-    await expect(readFolderFile('default', 'escape.txt', root)).rejects.toMatchObject({ status: 403 })
-    await expect(listFolder('default', 'escape', root)).rejects.toMatchObject({ status: 403 })
-    await expect(readFolderFile('default', '../etc/passwd', root)).rejects.toMatchObject({ status: 403 })
-    await expect(readFolderFile('default', 'profiles/leadengineer/SOUL.md', root)).rejects.toMatchObject({ status: 404 })
-    await expect(listFolder('../x', '', root)).rejects.toBeInstanceOf(FolderError)
+    expect((await readFolderFile(lead, 'image.bin')).kind).toBe('binary')
+    await expect(readFolderFile(lead, 'escape.txt')).rejects.toMatchObject({ status: 403 })
+    await expect(listFolder(lead, 'escape')).rejects.toMatchObject({ status: 403 })
+    await expect(readFolderFile(lead, '../leadengineer/SOUL.md')).rejects.toMatchObject({ status: 403 })
+    await expect(readFolderFile(lead, '../../config.yaml')).rejects.toBeInstanceOf(FolderError)
     expect(safeRelativePath('/memories//')).toBe('memories')
-  })
-
-  it('reports which profile folders exist', async () => {
-    expect(await folderAgents(['default', 'leadengineer', 'research'], root)).toEqual([
-      { profile: 'default', label: 'Lead Agent', available: true },
-      { profile: 'leadengineer', label: 'Lead Engineer', available: true },
-      { profile: 'research', label: 'research', available: false },
-    ])
   })
 })

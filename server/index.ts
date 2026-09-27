@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import express, { type NextFunction, type Request, type Response } from 'express'
-import { FolderError, folderAgents, listFolder, readFolderFile } from './folders.js'
-import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard } from './mission-control.js'
+import { excludedFor, FolderError, listFolder, publicAgent, readFolderFile, resolveAgentFolders } from './folders.js'
+import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard, getTaskDetail } from './mission-control.js'
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.MISSION_CONTROL_PORT) || 3001
@@ -35,15 +35,24 @@ for (const [path, handler] of Object.entries(routes)) {
     response.json(await handler(now))
   })
 }
-// Folders: read-only view of each Hermes profile folder. Only profiles Hermes itself reports
-// (plus the two declared stations) can be opened.
-async function allowedProfiles(): Promise<string[]> {
+app.get('/api/tasks/:id', async (request, response) => {
+  const detail = await getTaskDetail(String(request.params.id))
+  if (!detail) { response.status(404).json({ error: 'Unknown task.' }); return }
+  response.json(detail)
+})
+
+// Folders: read-only view of each agent's own folder. Only agents Mission Control resolved
+// (declared stations, Hermes-reported profiles, OpenCode) can be opened.
+async function agentFolders() {
   const runtime = await getSnapshot()
-  return (await folderAgents(runtime.profiles.data.map((profile) => profile.name))).map((agent) => agent.profile)
+  return resolveAgentFolders(runtime.profiles.data.map((profile) => profile.name))
 }
-async function checkedProfile(profile: string): Promise<string> {
-  if (!(await allowedProfiles()).includes(profile)) throw new FolderError('Unknown profile.', 404)
-  return profile
+async function openFolder(profile: string) {
+  const folders = await agentFolders()
+  const folder = folders.find((item) => item.profile === profile)
+  if (!folder) throw new FolderError('Unknown agent.', 404)
+  if (!folder.available) throw new FolderError(folder.reason ?? 'Folder not available.', 404)
+  return { folder, excluded: excludedFor(folder, folders) }
 }
 function folderRoute(handler: (request: Request) => Promise<unknown>) {
   return async (request: Request, response: Response) => {
@@ -55,12 +64,15 @@ function folderRoute(handler: (request: Request) => Promise<unknown>) {
     }
   }
 }
-app.get('/api/folders', folderRoute(async () => {
-  const runtime = await getSnapshot()
-  return { agents: await folderAgents(runtime.profiles.data.map((profile) => profile.name)), fetchedAt: new Date().toISOString() }
+app.get('/api/folders', folderRoute(async () => ({ agents: (await agentFolders()).map(publicAgent), fetchedAt: new Date().toISOString() })))
+app.get('/api/folders/:profile/list', folderRoute(async (request) => {
+  const { folder, excluded } = await openFolder(String(request.params.profile))
+  return listFolder(folder, request.query.path, excluded)
 }))
-app.get('/api/folders/:profile/list', folderRoute(async (request) => listFolder(await checkedProfile(String(request.params.profile)), request.query.path)))
-app.get('/api/folders/:profile/file', folderRoute(async (request) => readFolderFile(await checkedProfile(String(request.params.profile)), request.query.path)))
+app.get('/api/folders/:profile/file', folderRoute(async (request) => {
+  const { folder, excluded } = await openFolder(String(request.params.profile))
+  return readFolderFile(folder, request.query.path, excluded)
+}))
 
 app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }) })
 

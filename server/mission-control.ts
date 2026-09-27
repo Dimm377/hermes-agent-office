@@ -533,6 +533,104 @@ export async function collectLogs(run: Run = systemRun): Promise<LogsSnapshot> {
 }
 
 // ---------------------------------------------------------------------------
+// Kanban task detail (`hermes kanban show <id> --json`). Only ids present on the current board
+// are read; every free-text field is secret-redacted and home paths are shortened.
+
+export interface TaskDetail {
+  id: string
+  title: string
+  status: string
+  assignee?: string
+  priority?: number
+  tenant?: string
+  workspace?: string
+  branch?: string
+  skills: string[]
+  model?: string
+  createdAt?: string
+  createdBy?: string
+  startedAt?: string
+  completedAt?: string
+  body?: string
+  result?: string
+  lastError?: string
+  parents: string[]
+  children: string[]
+  comments: { author: string; body: string; createdAt?: string }[]
+  events: { kind: string; detail?: string; createdAt?: string; runId?: string }[]
+  runs: { id: string; profile?: string; status?: string; outcome?: string; summary?: string; error?: string; startedAt?: string; endedAt?: string }[]
+}
+export interface TaskDetailSnapshot { task: Source<TaskDetail | null>; fetchedAt: string }
+
+export const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+function clean(value: unknown, max = 20_000): string | undefined {
+  const raw = typeof value === 'string' ? value : typeof value === 'number' ? String(value) : value && typeof value === 'object' ? JSON.stringify(value) : undefined
+  if (!raw || !raw.trim()) return undefined
+  return raw.split('\n').map((line) => redactLogLine(line, Number.POSITIVE_INFINITY)).join('\n').slice(0, max)
+}
+
+function epoch(value: unknown): string | undefined {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return new Date(value * 1000).toISOString()
+  if (typeof value === 'string' && value.trim()) return Number.isFinite(Date.parse(value)) ? new Date(Date.parse(value)).toISOString() : value
+  return undefined
+}
+
+function ids(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && TASK_ID.test(item)) : []
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object') : []
+}
+
+function compact<T extends object>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as T
+}
+
+export function parseTaskDetail(output: string): TaskDetail {
+  const parsed: unknown = JSON.parse(output)
+  const root = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
+  const task = root.task && typeof root.task === 'object' ? root.task as Record<string, unknown> : undefined
+  const id = text(task?.id)
+  const title = text(task?.title)
+  if (!task || !id || !title) throw new Error('Unrecognized Kanban task output.')
+  const workspaceKind = text(task.workspace_kind)
+  const workspacePath = clean(task.workspace_path, 500)
+  const model = text(task.model_override)
+  return compact({
+    id,
+    title: clean(title, 500) ?? title,
+    status: (text(task.status) ?? 'unknown').toLowerCase(),
+    assignee: text(task.assignee),
+    priority: typeof task.priority === 'number' ? task.priority : undefined,
+    tenant: text(task.tenant),
+    workspace: workspaceKind || workspacePath ? [workspaceKind, workspacePath].filter(Boolean).join(' @ ') : undefined,
+    branch: text(task.branch_name),
+    skills: Array.isArray(task.skills) ? task.skills.filter((skill): skill is string => typeof skill === 'string') : [],
+    model: model ? `${model}${text(task.provider_override) ? ` (${text(task.provider_override)})` : ''}` : undefined,
+    createdAt: epoch(task.created_at),
+    createdBy: text(task.created_by),
+    startedAt: epoch(task.started_at),
+    completedAt: epoch(task.completed_at),
+    body: clean(task.body),
+    result: clean(task.result) ?? clean(root.latest_summary),
+    lastError: clean(task.last_failure_error, 4_000),
+    parents: ids(root.parents),
+    children: ids(root.children),
+    comments: records(root.comments).map((comment) => compact({ author: text(comment.author) ?? 'unknown', body: clean(comment.body, 4_000) ?? '', createdAt: epoch(comment.created_at) })),
+    events: records(root.events).slice(-30).map((event) => compact({ kind: text(event.kind) ?? 'event', detail: clean(event.payload, 400), createdAt: epoch(event.created_at), runId: event.run_id === null || event.run_id === undefined ? undefined : String(event.run_id) })),
+    runs: records(root.runs).map((run) => compact({ id: String(run.id ?? ''), profile: text(run.profile), status: text(run.status), outcome: text(run.outcome), summary: clean(run.summary, 4_000), error: clean(run.error, 2_000), startedAt: epoch(run.started_at), endedAt: epoch(run.ended_at) })),
+  })
+}
+
+export async function collectTaskDetail(id: string, run: Run = systemRun): Promise<TaskDetailSnapshot> {
+  if (!TASK_ID.test(id)) throw new Error('Invalid task id.')
+  const task = await read<TaskDetail | null>(run, 'hermes', ['kanban', 'show', id, '--json'], parseTaskDetail, null)
+  return { task, fetchedAt: new Date().toISOString() }
+}
+
+// ---------------------------------------------------------------------------
 // Live agent activity. Every Hermes profile writes all of its work (gateway chat replies,
 // cron runs, tool calls, the agent loop) to its own agent.log, so a recent log line or a
 // session active in the last few minutes is direct, attributable evidence of work.
@@ -786,6 +884,14 @@ export function getActivity(now = Date.now()): Promise<ActivitySnapshot> { retur
 export function getKnowledge(now = Date.now()): Promise<KnowledgeSnapshot> { return knowledgeSource(now) }
 export function getChannels(now = Date.now()): Promise<ChannelSnapshot> { return channelSource(now) }
 export function getLogs(now = Date.now()): Promise<LogsSnapshot> { return logsSource(now) }
+
+/** Detail for a task on the current board; returns undefined for ids Hermes did not list. */
+export async function getTaskDetail(id: string, now = Date.now()): Promise<TaskDetailSnapshot | undefined> {
+  if (!TASK_ID.test(id)) return undefined
+  const board = await getTaskBoard(now)
+  if (board.tasks.availability === 'available' && !board.tasks.data.some((task) => task.id === id)) return undefined
+  return collectTaskDetail(id)
+}
 
 export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
   const [runtime, board, activity, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now), agentActivitySource(now)])

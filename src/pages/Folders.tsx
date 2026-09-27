@@ -6,7 +6,7 @@ import type { FolderAgent, FolderAgentsSnapshot, FolderFile, FolderListing } fro
 import { EmptyState, LoadingState, PageTitle, SearchInput, SourceStatus, Unavailable } from '../ui.tsx'
 import { PixelCharacter } from './Office.tsx'
 
-const AVATARS: Record<string, string> = { default: 'lead-agent', leadengineer: 'lead-engineer' }
+const AVATARS: Record<string, string> = { default: 'lead-agent', leadengineer: 'lead-engineer', opencode: 'opencode' }
 
 function folderUrl(agent: string, kind: 'list' | 'file', path: string): string {
   return `/api/folders/${encodeURIComponent(agent)}/${kind}?path=${encodeURIComponent(path)}`
@@ -54,7 +54,7 @@ function Browser({ agent, onBack }: { agent: FolderAgent; onBack: () => void }) 
   return <>
     <nav className="breadcrumb" aria-label="Folder path">
       <button type="button" onClick={onBack}>All agents</button><span>/</span>
-      <button type="button" onClick={() => open('')} aria-current={!directory ? 'page' : undefined}>{agent.label} <small>({agent.profile})</small></button>
+      <button type="button" onClick={() => open('')} aria-current={!directory ? 'page' : undefined} title={agent.path}>{agent.label} <small>{agent.path}</small></button>
       {parts.map((part, index) => <span key={index} className="crumb"><span>/</span><button type="button" onClick={() => open(parts.slice(0, index + 1).join('/'))} aria-current={index === parts.length - 1 ? 'page' : undefined}>{part}</button></span>)}
       <button type="button" className="refresh-button crumb-refresh" onClick={listing.reload}>↻ REFRESH</button>
     </nav>
@@ -86,12 +86,12 @@ export function Folders() {
   const data = snapshot.status === 'ready' ? snapshot.data : undefined
   const agent = data?.agents.find((item) => item.profile === openAgent)
   const source = data ? { availability: 'available' as const, data: null } : undefined
-  return <><PageTitle eyebrow="HERMES PROFILES" title="Folders">Each agent's Hermes profile folder, read-only. Open an agent to browse its files (SOUL.md, memories, skills, cron, config…). Credential files are listed but never opened.</PageTitle>
+  return <><PageTitle eyebrow="AGENT FOLDERS" title="Folders">Each agent's own folder, read-only: its Hermes profile folder (SOUL.md, memories, skills, cron, config…) or, for OpenCode, its home folder. Every agent only shows its own files. Credential files are listed but never opened.</PageTitle>
     {!agent && <SourceStatus source={source} fetchedAt={data?.fetchedAt} request={snapshot}/>}
     <Unavailable source={source} request={snapshot}/>
     {snapshot.status === 'pending' ? <LoadingState message="Finding agent folders..."/> : agent ? <Browser key={agent.profile} agent={agent} onBack={() => setOpenAgent(undefined)}/> : data && <section className="folder-agents">{data.agents.map((item) => <button type="button" key={item.profile} className="folder-agent" disabled={!item.available} onClick={() => setOpenAgent(item.profile)}>
       <span className="folder-glyph" aria-hidden="true"><PixelCharacter avatar={AVATARS[item.profile] ?? 'opencode'}/></span>
-      <span className="folder-meta"><strong>{item.label}</strong><small>profile · {item.profile}</small><small>{item.available ? 'Open folder →' : 'Folder not found on this machine'}</small></span>
+      <span className="folder-meta"><strong>{item.label}</strong><code className="folder-path">{item.path}</code><small>{item.available ? 'Open folder →' : item.reason ?? 'Folder not available'}</small></span>
     </button>)}</section>}
   </>
 }

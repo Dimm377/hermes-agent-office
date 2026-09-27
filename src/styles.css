@@ -443,3 +443,20 @@ main { max-width: 1680px; }
 .room-hint { display: none; }
 .breadcrumb .refresh-button { border: 1px solid var(--border-strong); font-size: 10px; letter-spacing: .07em; padding: 5px 9px; }
 @media (max-width: 760px) { .room-hint { color: var(--text-dim); display: block; font: 10px ui-monospace, monospace; margin: 6px 0 0; } .sidebar-theme { display: none; } }
+.folder-path { font-size: 11px; justify-self: start; overflow-wrap: anywhere; }
+
+/* ---- Task detail ---- */
+.task-card { background: transparent; border-left: 0; border-right: 0; border-bottom: 0; color: inherit; cursor: pointer; font: inherit; text-align: left; width: 100%; }
+.task-card:hover strong { color: var(--accent); }
+.task-detail { width: min(860px, 100%); }
+.task-detail h2 { font-size: 26px; margin: 8px 0 12px; overflow-wrap: anywhere; }
+.task-grid { margin-top: 18px; }
+.task-grid div:nth-last-child(-n+2) { grid-column: auto; }
+.task-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.task-section { border-top: 1px solid var(--border); margin-top: 18px; padding-top: 14px; }
+.task-text { background: var(--code-bg); border: 1px solid var(--border); color: var(--c-c9d1c9); font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 8px 0 0; max-height: 280px; overflow: auto; padding: 12px; white-space: pre-wrap; word-break: break-word; }
+.task-timeline { display: grid; gap: 10px; list-style: none; margin: 8px 0 0; padding: 0; }
+.task-timeline li { border-left: 2px solid var(--border-strong); display: grid; gap: 3px; padding-left: 10px; }
+.task-timeline b { font-size: 13px; }
+.task-timeline p { color: var(--text-muted); font-size: 13px; margin: 0; white-space: pre-wrap; }
+.task-timeline code { justify-self: start; overflow-wrap: anywhere; }

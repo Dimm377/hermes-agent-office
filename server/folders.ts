@@ -3,8 +3,9 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { redactLogLine } from './mission-control.js'
 
-// Read-only browser over each Hermes profile folder: ~/.hermes for `default`,
-// ~/.hermes/profiles/<name> for the rest. Every request is confined to that folder (after
+// Read-only browser over each agent's own folder: ~/.hermes/profiles/<name> for Hermes
+// profiles (`default` falls back to ~/.hermes when it has no profiles/default folder) and
+// ~/.opencode for OpenCode. Every request is confined to that folder (after
 // resolving symlinks), secret-bearing files are listed but never read, and text content is
 // passed through the same secret redaction as logs.
 
@@ -17,7 +18,9 @@ const HIDDEN_DIRECTORIES = new Set(['node_modules', '.git', '__pycache__', '.ven
 /** Never read: credentials, keys and binary state stores. Listed with `sensitive: true`. */
 const SENSITIVE_FILE = /(^\.env(\..*)?$|^auth\.json$|^\.netrc$|^id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$|\.(pem|key|p12|pfx|crt|keystore|jks)$|credential|secret|token|password|cookie|oauth|\.(db|sqlite|sqlite3|db-wal|db-shm|db-journal)$|-(wal|shm)$)/i
 
-export interface FolderAgent { profile: string; label: string; available: boolean }
+export interface FolderAgent { profile: string; label: string; available: boolean; path: string; reason?: string }
+/** Server-side view of an agent folder: the absolute directory stays on the server. */
+export interface AgentFolder extends FolderAgent { directory: string }
 export interface FolderEntry { name: string; path: string; type: 'dir' | 'file'; size: number; modified: string; sensitive: boolean }
 export interface FolderListing { profile: string; path: string; entries: FolderEntry[]; truncated: boolean; hiddenCount: number }
 export interface FolderFile {
@@ -47,11 +50,6 @@ export function hermesRoot(env: NodeJS.ProcessEnv = process.env, home = homedir(
   return path.basename(path.dirname(resolved)) === 'profiles' ? path.dirname(path.dirname(resolved)) : resolved
 }
 
-export function profileDirectory(profile: string, root = hermesRoot()): string {
-  if (!PROFILE_NAME.test(profile)) throw new FolderError('Invalid profile name.', 400)
-  return profile === 'default' ? root : path.join(root, 'profiles', profile)
-}
-
 /** Normalises a client path to a safe relative path ('' is the profile root). */
 export function safeRelativePath(input: unknown): string {
   if (input === undefined || input === '' || input === '/') return ''
@@ -72,37 +70,51 @@ async function resolveInside(base: string, relative: string): Promise<string> {
   return target
 }
 
-function isHidden(profile: string, relativeDir: string, name: string): boolean {
-  if (HIDDEN_DIRECTORIES.has(name)) return true
-  // Other profiles live inside the default profile's folder; they are listed as their own agents.
-  return profile === 'default' && relativeDir === '' && name === 'profiles'
+function isHidden(name: string): boolean {
+  return HIDDEN_DIRECTORIES.has(name)
+}
+
+function insideAny(target: string, directories: Iterable<string>): boolean {
+  for (const directory of directories) {
+    const relative = path.relative(directory, target)
+    if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))) return true
+  }
+  return false
 }
 
 export function isSensitive(name: string): boolean {
   return SENSITIVE_FILE.test(name)
 }
 
-export async function listFolder(profile: string, relativeInput: unknown, root = hermesRoot()): Promise<FolderListing> {
+/**
+ * Lists one folder of an agent. `excluded` holds the real paths of the *other* agents' folders:
+ * when one agent's folder contains another's (the Hermes root holds profiles/), that sub-folder
+ * is hidden so every agent only ever shows its own files.
+ */
+export async function listFolder(folder: Pick<AgentFolder, 'profile' | 'directory'>, relativeInput: unknown, excluded: string[] = []): Promise<FolderListing> {
   const relative = safeRelativePath(relativeInput)
-  const directory = await resolveInside(profileDirectory(profile, root), relative)
+  const directory = await resolveInside(folder.directory, relative)
+  if (insideAny(directory, excluded)) throw new FolderError('File or folder not found.', 404)
   const info = await stat(directory)
   if (!info.isDirectory()) throw new FolderError('Not a folder.', 400)
   const dirents = await readdir(directory, { withFileTypes: true })
   let hiddenCount = 0
   const entries: FolderEntry[] = []
   for (const dirent of dirents) {
-    if (isHidden(profile, relative, dirent.name)) { hiddenCount += 1; continue }
+    if (isHidden(dirent.name)) { hiddenCount += 1; continue }
     try {
-      const entryStat = await stat(path.join(directory, dirent.name))
+      const full = path.join(directory, dirent.name)
+      const entryStat = await stat(full)
       const type = entryStat.isDirectory() ? 'dir' : entryStat.isFile() ? 'file' : undefined
       if (!type) continue
+      if (type === 'dir' && insideAny(await realpath(full), excluded)) { hiddenCount += 1; continue }
       entries.push({ name: dirent.name, path: relative ? `${relative}/${dirent.name}` : dirent.name, type, size: type === 'file' ? entryStat.size : 0, modified: entryStat.mtime.toISOString(), sensitive: type === 'file' && isSensitive(dirent.name) })
     } catch {
       // Broken symlinks and unreadable entries are skipped.
     }
   }
   entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
-  return { profile, path: relative, entries: entries.slice(0, LIST_LIMIT), truncated: entries.length > LIST_LIMIT, hiddenCount }
+  return { profile: folder.profile, path: relative, entries: entries.slice(0, LIST_LIMIT), truncated: entries.length > LIST_LIMIT, hiddenCount }
 }
 
 function looksBinary(buffer: Buffer): boolean {
@@ -113,16 +125,16 @@ function looksBinary(buffer: Buffer): boolean {
   return sample.length > 0 && control / sample.length > 0.1
 }
 
-export async function readFolderFile(profile: string, relativeInput: unknown, root = hermesRoot()): Promise<FolderFile> {
+export async function readFolderFile(folder: Pick<AgentFolder, 'profile' | 'directory'>, relativeInput: unknown, excluded: string[] = []): Promise<FolderFile> {
   const relative = safeRelativePath(relativeInput)
   if (!relative) throw new FolderError('Not a file.', 400)
   const name = path.posix.basename(relative)
-  const segments = relative.split('/')
-  if (segments.some((segment, index) => isHidden(profile, segments.slice(0, index).join('/'), segment))) throw new FolderError('File or folder not found.', 404)
-  const target = await resolveInside(profileDirectory(profile, root), relative)
+  if (relative.split('/').some(isHidden)) throw new FolderError('File or folder not found.', 404)
+  const target = await resolveInside(folder.directory, relative)
+  if (insideAny(target, excluded)) throw new FolderError('File or folder not found.', 404)
   const info = await stat(target)
   if (!info.isFile()) throw new FolderError('Not a file.', 400)
-  const base = { profile, path: relative, size: info.size, modified: info.mtime.toISOString() }
+  const base = { profile: folder.profile, path: relative, size: info.size, modified: info.mtime.toISOString() }
   if (isSensitive(name) || isSensitive(path.basename(target))) return { ...base, kind: 'sensitive' }
   const handle = await open(target, 'r')
   try {
@@ -142,11 +154,59 @@ export async function readFolderFile(profile: string, relativeInput: unknown, ro
   }
 }
 
-export async function folderAgents(profiles: string[], root = hermesRoot()): Promise<FolderAgent[]> {
-  const labels: Record<string, string> = { default: 'Lead Agent', leadengineer: 'Lead Engineer' }
-  const names = [...new Set(['default', 'leadengineer', ...profiles])].filter((name) => PROFILE_NAME.test(name))
-  return Promise.all(names.map(async (profile) => {
-    const available = await stat(profileDirectory(profile, root)).then((info) => info.isDirectory(), () => false)
-    return { profile, label: labels[profile] ?? profile, available }
-  }))
+const LABELS: Record<string, string> = { default: 'Lead Agent', leadengineer: 'Lead Engineer', opencode: 'OpenCode' }
+
+function displayPath(directory: string, home: string): string {
+  const relative = path.relative(home, directory)
+  return !relative.startsWith('..') && !path.isAbsolute(relative) ? (relative ? `~/${relative}` : '~') : directory
+}
+
+async function firstDirectory(candidates: string[]): Promise<{ directory: string; real?: string }> {
+  for (const candidate of candidates) {
+    const real = await realpath(candidate).catch(() => undefined)
+    if (real && (await stat(real).then((info) => info.isDirectory(), () => false))) return { directory: candidate, real }
+  }
+  return { directory: candidates[0] }
+}
+
+/**
+ * Resolves every agent to its own folder:
+ * - Hermes profile <name> → <root>/profiles/<name>; `default` → <root>/profiles/default, or the
+ *   Hermes root itself when that folder does not exist (stock Hermes layout);
+ * - OpenCode → ~/.opencode, then ~/.config/opencode (MISSION_CONTROL_OPENCODE_DIR overrides).
+ * A non-default agent that resolves to the Hermes root, or to another agent's folder, is not
+ * opened: it would show files that are not its own.
+ */
+export async function resolveAgentFolders(profiles: string[], env: NodeJS.ProcessEnv = process.env, home = homedir()): Promise<AgentFolder[]> {
+  const root = hermesRoot(env, home)
+  const names = [...new Set(['default', 'leadengineer', ...profiles.filter((name) => name !== 'opencode')])].filter((name) => PROFILE_NAME.test(name))
+  const specs = [
+    ...names.map((profile) => ({ profile, candidates: profile === 'default' ? [path.join(root, 'profiles', 'default'), root] : [path.join(root, 'profiles', profile)] })),
+    { profile: 'opencode', candidates: env.MISSION_CONTROL_OPENCODE_DIR ? [path.resolve(env.MISSION_CONTROL_OPENCODE_DIR)] : [path.join(home, '.opencode'), path.join(home, '.config', 'opencode')] },
+  ]
+  const realRoot = await realpath(root).catch(() => root)
+  const claimed = new Map<string, string>()
+  const folders: AgentFolder[] = []
+  for (const spec of specs) {
+    const { directory, real } = await firstDirectory(spec.candidates)
+    const label = LABELS[spec.profile] ?? spec.profile
+    const base = { profile: spec.profile, label, path: displayPath(directory, home), directory: real ?? directory }
+    if (!real) { folders.push({ ...base, available: false, reason: 'Folder not found on this machine' }); continue }
+    if (spec.profile !== 'default' && real === realRoot) { folders.push({ ...base, available: false, reason: 'Resolves to the shared Hermes root, not its own folder' }); continue }
+    const owner = claimed.get(real)
+    if (owner) { folders.push({ ...base, available: false, reason: `Same folder as ${owner}` }); continue }
+    claimed.set(real, label)
+    folders.push({ ...base, available: true })
+  }
+  return folders
+}
+
+/** Real paths of every other available agent folder, hidden inside this agent's folder. */
+export function excludedFor(folder: AgentFolder, folders: AgentFolder[]): string[] {
+  return folders.filter((other) => other.available && other.profile !== folder.profile).map((other) => other.directory)
+}
+
+export function publicAgent({ directory: _directory, ...agent }: AgentFolder): FolderAgent {
+  void _directory
+  return agent
 }

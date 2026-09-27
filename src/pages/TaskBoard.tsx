@@ -1,15 +1,65 @@
-import { useState } from 'react'
-import { orderedStatuses, statusTone } from '../format.ts'
+import { useEffect, useRef, useState } from 'react'
+import { formatDateTime, orderedStatuses, statusTone } from '../format.ts'
 import { usePolling } from '../polling.ts'
-import type { TaskBoardSnapshot } from '../types.ts'
-import { EmptyState, PageTitle, SearchInput, SourceStatus, Unavailable } from '../ui.tsx'
+import { loadSnapshot, type RequestState } from '../request-state.ts'
+import type { Task, TaskBoardSnapshot, TaskDetailSnapshot } from '../types.ts'
+import { Dialog, EmptyState, PageTitle, SearchInput, SourceStatus, Unavailable } from '../ui.tsx'
 
 const UNASSIGNED = '(unassigned)'
+
+function Field({ label, value }: { label: string; value?: string | number }) {
+  return value === undefined || value === '' ? null : <div><dt>{label}</dt><dd>{value}</dd></div>
+}
+
+export function TaskDetailDialog({ task, onClose, onOpenTask }: { task: Task; onClose: () => void; onOpenTask?: (id: string) => void }) {
+  const [state, setState] = useState<RequestState<TaskDetailSnapshot>>({ status: 'pending' })
+  useEffect(() => {
+    if (!task.id) return
+    let active = true
+    setState({ status: 'pending' })
+    void loadSnapshot<TaskDetailSnapshot>(`/api/tasks/${encodeURIComponent(task.id)}`).then((next) => { if (active) setState(next) })
+    return () => { active = false }
+  }, [task.id])
+  const detail = state.status === 'ready' && state.data.task.availability === 'available' ? state.data.task.data : null
+  const failed = !task.id || state.status === 'failed' || (state.status === 'ready' && !detail)
+  const status = detail?.status ?? task.status
+  const links = (label: string, ids: string[]) => ids.length > 0 && <div><dt>{label}</dt><dd className="task-links">{ids.map((id) => <button type="button" key={id} className="chip chip-button" onClick={() => onOpenTask?.(id)}>{id}</button>)}</dd></div>
+  return <Dialog labelledBy="task-detail-title" onClose={onClose} closeLabel={`Close details for ${task.title}`} className="task-detail">
+    <p className="eyebrow">KANBAN TASK{task.id ? ` · ${task.id}` : ''}</p>
+    <h2 id="task-detail-title">{detail?.title ?? task.title}</h2>
+    <div className="task-meta"><span className={`badge ${statusTone(status)}`}>{status}</span><span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{detail?.assignee ?? task.assignee ?? 'unassigned'}</span>{(detail?.priority ?? task.priority) ? <span className="chip chip-priority">P{detail?.priority ?? task.priority}</span> : null}</div>
+    {state.status === 'pending' && task.id && <p className="muted">Loading task details…</p>}
+    {failed && <p className="file-notice">{task.id ? 'Full details are not available right now (hermes kanban show could not be read). Showing the board summary.' : 'This task has no id, so only the board summary is available.'}</p>}
+    {detail && <>
+      <dl className="office-detail-grid task-grid">
+        <Field label="Created" value={detail.createdAt ? `${formatDateTime(detail.createdAt)}${detail.createdBy ? ` by ${detail.createdBy}` : ''}` : undefined}/>
+        <Field label="Started" value={detail.startedAt && formatDateTime(detail.startedAt)}/>
+        <Field label="Completed" value={detail.completedAt && formatDateTime(detail.completedAt)}/>
+        <Field label="Workspace" value={detail.workspace}/>
+        <Field label="Branch" value={detail.branch}/>
+        <Field label="Model" value={detail.model}/>
+        <Field label="Tenant" value={detail.tenant}/>
+        <Field label="Skills" value={detail.skills.join(', ')}/>
+        {links('Depends on', detail.parents)}
+        {links('Blocks', detail.children)}
+      </dl>
+      {detail.lastError && <section className="task-section"><p className="eyebrow">LAST FAILURE</p><pre className="task-text text-bad">{detail.lastError}</pre></section>}
+      <section className="task-section"><p className="eyebrow">DESCRIPTION</p>{detail.body ? <pre className="task-text">{detail.body}</pre> : <p className="muted">No description.</p>}</section>
+      {detail.result && <section className="task-section"><p className="eyebrow">RESULT / LATEST SUMMARY</p><pre className="task-text">{detail.result}</pre></section>}
+      {detail.runs.length > 0 && <section className="task-section"><p className="eyebrow">RUNS ({detail.runs.length})</p><table className="log-table"><thead><tr><th>Run</th><th>Profile</th><th>Status</th><th>Started</th><th>Ended</th></tr></thead><tbody>{detail.runs.map((run) => <tr key={run.id}><td>#{run.id}</td><td>{run.profile ?? '—'}</td><td><span className={`badge ${statusTone(run.outcome ?? run.status ?? '')}`}>{run.outcome ?? run.status ?? '—'}</span>{run.error && <div className="text-bad small-note">{run.error}</div>}{run.summary && <div className="small-note">{run.summary}</div>}</td><td>{formatDateTime(run.startedAt)}</td><td>{formatDateTime(run.endedAt)}</td></tr>)}</tbody></table></section>}
+      {detail.comments.length > 0 && <section className="task-section"><p className="eyebrow">COMMENTS ({detail.comments.length})</p><ul className="task-timeline">{detail.comments.map((comment, index) => <li key={index}><b>{comment.author}</b><small>{formatDateTime(comment.createdAt)}</small><p>{comment.body}</p></li>)}</ul></section>}
+      {detail.events.length > 0 && <section className="task-section"><p className="eyebrow">ACTIVITY ({detail.events.length})</p><ul className="task-timeline">{[...detail.events].reverse().map((event, index) => <li key={index}><b>{event.kind}</b><small>{formatDateTime(event.createdAt)}{event.runId ? ` · run #${event.runId}` : ''}</small>{event.detail && <code>{event.detail}</code>}</li>)}</ul></section>}
+    </>}
+  </Dialog>
+}
 
 export function TaskBoard() {
   const snapshot = usePolling<TaskBoardSnapshot>('/api/tasks', 10_000)
   const [query, setQuery] = useState('')
   const [assignee, setAssignee] = useState('all')
+  const [openTask, setOpenTask] = useState<Task | undefined>()
+  const trigger = useRef<HTMLButtonElement | null>(null)
+  const closeTask = () => { setOpenTask(undefined); trigger.current?.focus() }
   const data = snapshot.status === 'ready' ? snapshot.data : undefined
   const tasks = data?.tasks
   const all = tasks?.data ?? []
@@ -24,9 +74,10 @@ export function TaskBoard() {
       <section className="board" aria-label="Kanban board">{columns.map((status) => {
         const items = visible.filter((task) => task.status === status).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
         return <article key={status} className={`column tone-border-${statusTone(status)}`} aria-label={`${status} column`}><header className="column-head"><p className="eyebrow">{status}</p><span className="column-count">{items.length}</span></header>
-          {items.length === 0 ? <p className="column-empty">—</p> : items.map((task) => <div className="task" key={`${task.status}-${task.id ?? task.title}`}><strong>{task.title}</strong><div className="task-meta">{task.id && <small>{task.id}</small>}<span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{task.assignee ?? 'unassigned'}</span>{task.priority ? <span className="chip chip-priority">P{task.priority}</span> : null}</div></div>)}
+          {items.length === 0 ? <p className="column-empty">—</p> : items.map((task) => <button type="button" className="task task-card" key={`${task.status}-${task.id ?? task.title}`} onClick={(event) => { trigger.current = event.currentTarget; setOpenTask(task) }} aria-label={`${task.title}. ${task.status}. Open task details.`}><strong>{task.title}</strong><div className="task-meta">{task.id && <small>{task.id}</small>}<span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{task.assignee ?? 'unassigned'}</span>{task.priority ? <span className="chip chip-priority">P{task.priority}</span> : null}</div></button>)}
         </article>
       })}</section>
     </>)}
+    {openTask && <TaskDetailDialog key={openTask.id ?? openTask.title} task={openTask} onClose={closeTask} onOpenTask={(id) => setOpenTask(all.find((task) => task.id === id) ?? { id, title: id, status: 'unknown' })}/>}
   </>
 }
