@@ -1,0 +1,152 @@
+import { open, readdir, realpath, stat } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import path from 'node:path'
+import { redactLogLine } from './mission-control.js'
+
+// Read-only browser over each Hermes profile folder: ~/.hermes for `default`,
+// ~/.hermes/profiles/<name> for the rest. Every request is confined to that folder (after
+// resolving symlinks), secret-bearing files are listed but never read, and text content is
+// passed through the same secret redaction as logs.
+
+const PREVIEW_LIMIT = 256 * 1024
+const LIST_LIMIT = 500
+const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+/** Heavy or non-profile directories hidden from listings. */
+const HIDDEN_DIRECTORIES = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', '.cache', 'hermes-agent'])
+/** Never read: credentials, keys and binary state stores. Listed with `sensitive: true`. */
+const SENSITIVE_FILE = /(^\.env(\..*)?$|^auth\.json$|^\.netrc$|^id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$|\.(pem|key|p12|pfx|crt|keystore|jks)$|credential|secret|token|password|cookie|oauth|\.(db|sqlite|sqlite3|db-wal|db-shm|db-journal)$|-(wal|shm)$)/i
+
+export interface FolderAgent { profile: string; label: string; available: boolean }
+export interface FolderEntry { name: string; path: string; type: 'dir' | 'file'; size: number; modified: string; sensitive: boolean }
+export interface FolderListing { profile: string; path: string; entries: FolderEntry[]; truncated: boolean; hiddenCount: number }
+export interface FolderFile {
+  profile: string
+  path: string
+  size: number
+  modified: string
+  kind: 'text' | 'binary' | 'sensitive' | 'too-large'
+  content?: string
+  truncated?: boolean
+  redactions?: number
+}
+
+export class FolderError extends Error {
+  constructor(message: string, readonly status: 400 | 403 | 404) { super(message) }
+}
+
+/** Mirrors hermes_constants.get_default_hermes_root(). MISSION_CONTROL_HERMES_ROOT overrides it. */
+export function hermesRoot(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  if (env.MISSION_CONTROL_HERMES_ROOT) return path.resolve(env.MISSION_CONTROL_HERMES_ROOT)
+  const native = path.join(home, `.hermes${env.HERMES_DATA_DIR_SUFFIX ?? ''}`)
+  const configured = env.HERMES_HOME?.trim()
+  if (!configured) return native
+  const resolved = path.resolve(configured.replace(/^~(?=$|\/)/, home))
+  const relative = path.relative(native, resolved)
+  if (!relative.startsWith('..') && !path.isAbsolute(relative)) return native
+  return path.basename(path.dirname(resolved)) === 'profiles' ? path.dirname(path.dirname(resolved)) : resolved
+}
+
+export function profileDirectory(profile: string, root = hermesRoot()): string {
+  if (!PROFILE_NAME.test(profile)) throw new FolderError('Invalid profile name.', 400)
+  return profile === 'default' ? root : path.join(root, 'profiles', profile)
+}
+
+/** Normalises a client path to a safe relative path ('' is the profile root). */
+export function safeRelativePath(input: unknown): string {
+  if (input === undefined || input === '' || input === '/') return ''
+  if (typeof input !== 'string' || input.length > 1024 || input.includes('\0')) throw new FolderError('Invalid path.', 400)
+  const normalized = path.posix.normalize(input.replace(/\\/g, '/')).replace(/^\/+/, '').replace(/\/+$/, '')
+  if (normalized === '.' ) return ''
+  if (normalized.split('/').some((part) => part === '..')) throw new FolderError('Path escapes the profile folder.', 403)
+  return normalized
+}
+
+async function resolveInside(base: string, relative: string): Promise<string> {
+  let realBase: string
+  try { realBase = await realpath(base) } catch { throw new FolderError('Profile folder not found.', 404) }
+  let target: string
+  try { target = await realpath(path.join(realBase, relative)) } catch { throw new FolderError('File or folder not found.', 404) }
+  const inside = path.relative(realBase, target)
+  if (inside.startsWith('..') || path.isAbsolute(inside)) throw new FolderError('Path escapes the profile folder.', 403)
+  return target
+}
+
+function isHidden(profile: string, relativeDir: string, name: string): boolean {
+  if (HIDDEN_DIRECTORIES.has(name)) return true
+  // Other profiles live inside the default profile's folder; they are listed as their own agents.
+  return profile === 'default' && relativeDir === '' && name === 'profiles'
+}
+
+export function isSensitive(name: string): boolean {
+  return SENSITIVE_FILE.test(name)
+}
+
+export async function listFolder(profile: string, relativeInput: unknown, root = hermesRoot()): Promise<FolderListing> {
+  const relative = safeRelativePath(relativeInput)
+  const directory = await resolveInside(profileDirectory(profile, root), relative)
+  const info = await stat(directory)
+  if (!info.isDirectory()) throw new FolderError('Not a folder.', 400)
+  const dirents = await readdir(directory, { withFileTypes: true })
+  let hiddenCount = 0
+  const entries: FolderEntry[] = []
+  for (const dirent of dirents) {
+    if (isHidden(profile, relative, dirent.name)) { hiddenCount += 1; continue }
+    try {
+      const entryStat = await stat(path.join(directory, dirent.name))
+      const type = entryStat.isDirectory() ? 'dir' : entryStat.isFile() ? 'file' : undefined
+      if (!type) continue
+      entries.push({ name: dirent.name, path: relative ? `${relative}/${dirent.name}` : dirent.name, type, size: type === 'file' ? entryStat.size : 0, modified: entryStat.mtime.toISOString(), sensitive: type === 'file' && isSensitive(dirent.name) })
+    } catch {
+      // Broken symlinks and unreadable entries are skipped.
+    }
+  }
+  entries.sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name) : a.type === 'dir' ? -1 : 1))
+  return { profile, path: relative, entries: entries.slice(0, LIST_LIMIT), truncated: entries.length > LIST_LIMIT, hiddenCount }
+}
+
+function looksBinary(buffer: Buffer): boolean {
+  const sample = buffer.subarray(0, 8000)
+  if (sample.includes(0)) return true
+  let control = 0
+  for (const byte of sample) if (byte < 7 || (byte > 13 && byte < 32)) control += 1
+  return sample.length > 0 && control / sample.length > 0.1
+}
+
+export async function readFolderFile(profile: string, relativeInput: unknown, root = hermesRoot()): Promise<FolderFile> {
+  const relative = safeRelativePath(relativeInput)
+  if (!relative) throw new FolderError('Not a file.', 400)
+  const name = path.posix.basename(relative)
+  const segments = relative.split('/')
+  if (segments.some((segment, index) => isHidden(profile, segments.slice(0, index).join('/'), segment))) throw new FolderError('File or folder not found.', 404)
+  const target = await resolveInside(profileDirectory(profile, root), relative)
+  const info = await stat(target)
+  if (!info.isFile()) throw new FolderError('Not a file.', 400)
+  const base = { profile, path: relative, size: info.size, modified: info.mtime.toISOString() }
+  if (isSensitive(name) || isSensitive(path.basename(target))) return { ...base, kind: 'sensitive' }
+  const handle = await open(target, 'r')
+  try {
+    const length = Math.min(info.size, PREVIEW_LIMIT)
+    const buffer = Buffer.alloc(length)
+    await handle.read(buffer, 0, length, 0)
+    if (looksBinary(buffer)) return { ...base, kind: 'binary' }
+    let redactions = 0
+    const content = buffer.toString('utf8').split('\n').map((line) => {
+      const redacted = redactLogLine(line, Number.POSITIVE_INFINITY)
+      if (redacted !== line) redactions += 1
+      return redacted
+    }).join('\n')
+    return { ...base, kind: info.size > PREVIEW_LIMIT ? 'too-large' : 'text', content, truncated: info.size > PREVIEW_LIMIT, redactions }
+  } finally {
+    await handle.close()
+  }
+}
+
+export async function folderAgents(profiles: string[], root = hermesRoot()): Promise<FolderAgent[]> {
+  const labels: Record<string, string> = { default: 'Lead Agent', leadengineer: 'Lead Engineer' }
+  const names = [...new Set(['default', 'leadengineer', ...profiles])].filter((name) => PROFILE_NAME.test(name))
+  return Promise.all(names.map(async (profile) => {
+    const available = await stat(profileDirectory(profile, root)).then((info) => info.isDirectory(), () => false)
+    return { profile, label: labels[profile] ?? profile, available }
+  }))
+}

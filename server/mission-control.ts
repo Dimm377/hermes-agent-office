@@ -45,13 +45,20 @@ export interface OfficeStation {
   state: OfficeState
   currentTask: string
   recentActivity: string
+  /** Short, human label of what the station is doing now ('' when nothing is known). */
+  activity: string
+  /** Fixed desk / seat number (1-based) so every agent keeps its own place in each room. */
+  seat: number
   provenance: string
   freshness: string
 }
+export type ActivityKind = 'chat' | 'cron' | 'tools' | 'thinking'
+export interface AgentActivity { profile: string; availability: Availability; active: boolean; kind?: ActivityKind; label?: string; lastSeen?: string; mentionsOpenCode: boolean }
+export interface AgentActivitySnapshot { agents: AgentActivity[]; fetchedAt: string }
 export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSummary; fetchedAt: string }
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
 export interface ExplicitOfficeState { station: OfficeStation['name']; state: 'Working' | 'Reviewing' | 'Collaborating'; expiresAt: string }
-export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[] }
+export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[]; agentActivity?: AgentActivitySnapshot }
 export interface UsageInsights {
   days: number
   sessions: number
@@ -362,14 +369,15 @@ export function parseInsights(output: string, days: number): UsageInsights {
 const SECRET_PATTERNS: [RegExp, string][] = [
   [/\b(sk|pk|rk|xox[abprs]|ghp|gho|ghs|github_pat|glpat|AKIA)[-_A-Za-z0-9]{8,}/g, '[redacted]'],
   [/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted]'],
-  [/\b([A-Za-z_]*(?:api[_-]?key|token|secret|password|passwd|authorization|cookie)[A-Za-z_]*)(["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, '$1$2[redacted]'],
+  // Values shorter than 8 characters (e.g. `max_tokens: 4096`) are settings, not secrets.
+  [/\b([A-Za-z_]*(?:api[_-]?key|token|secret|password|passwd|authorization|cookie)[A-Za-z_]*)(["']?\s*[:=]\s*["']?)(?!\[redacted\])[^\s"',}]{8,}/gi, '$1$2[redacted]'],
   [/\b\d{8,10}:[A-Za-z0-9_-]{30,}\b/g, '[redacted]'],
   [/(?:\/home|\/Users)\/[^/\s]+|\/root(?=\/|\b)/g, '~'],
 ]
 
-export function redactLogLine(line: string): string {
+export function redactLogLine(line: string, maxLength = 600): string {
   const redacted = SECRET_PATTERNS.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), line)
-  return redacted.length > 600 ? `${redacted.slice(0, 600)}…` : redacted
+  return redacted.length > maxLength ? `${redacted.slice(0, maxLength)}…` : redacted
 }
 
 const LOG_LEVEL = /^\d{4}-\d{2}-\d{2}[ T][\d:,.]+\s+(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\b/
@@ -525,12 +533,72 @@ export async function collectLogs(run: Run = systemRun): Promise<LogsSnapshot> {
 }
 
 // ---------------------------------------------------------------------------
+// Live agent activity. Every Hermes profile writes all of its work (gateway chat replies,
+// cron runs, tool calls, the agent loop) to its own agent.log, so a recent log line or a
+// session active in the last few minutes is direct, attributable evidence of work.
+
+export const ACTIVITY_WINDOW = '3m'
+const ACTIVITY_PROFILES = ['default', 'leadengineer'] as const
+const LOG_RECORD = /^(\d{4}-\d{2}-\d{2}[ T][\d:,.]+)\s+[A-Z]+(?:\s+\[[^\]]*\])?\s+([\w.]+):\s?(.*)$/
+const CHAT_MESSAGE = /\b(message|reply|replied|respond|inbound|outbound|received|sending|sent|chat)\b/i
+const ACTIVITY_LABELS: Record<ActivityKind, string> = {
+  chat: 'Replying to a chat',
+  cron: 'Running a scheduled job',
+  tools: 'Using tools',
+  thinking: 'Working on a request',
+}
+
+function loggerKind(name: string, message: string): ActivityKind | 'gateway' | undefined {
+  if (/^cron\b/.test(name)) return 'cron'
+  if (/^(tools|model_tools)\b/.test(name)) return 'tools'
+  if (/^(agent|run_agent|batch_runner)\b/.test(name)) return 'thinking'
+  if (/^(gateway|hermes_plugins|plugins\.platforms)\b/.test(name)) return CHAT_MESSAGE.test(message) ? 'chat' : 'gateway'
+  return undefined // hermes_cli, uvicorn, gui: not agent work
+}
+
+export function parseRecentActivity(logOutput: string, sessionOutput?: string): Omit<AgentActivity, 'profile' | 'availability'> {
+  const found = new Set<ActivityKind | 'gateway'>()
+  let lastSeen: string | undefined
+  let mentionsOpenCode = false
+  for (const line of lines(logOutput)) {
+    const record = line.match(LOG_RECORD)
+    if (!record) continue
+    const kind = loggerKind(record[2], record[3])
+    if (!kind) continue
+    found.add(kind)
+    if (kind !== 'gateway') lastSeen = record[1]
+    if (/\bopencode\b/i.test(record[3])) mentionsOpenCode = true
+  }
+  // Gateway lines alone can be polling noise; with agent-loop lines they are a chat reply.
+  if (found.has('gateway') && (found.has('thinking') || found.has('tools'))) found.add('chat')
+  let sessionActive = false
+  if (sessionOutput) {
+    try { sessionActive = /^(just now|[0-3]m ago)$/.test(parseSessions(sessionOutput)[0]?.lastActive ?? '') } catch { sessionActive = false }
+  }
+  if (sessionActive && found.size === 0) found.add('chat')
+  const kind = (['cron', 'chat', 'tools', 'thinking'] as const).find((item) => found.has(item))
+  return { active: kind !== undefined, ...(kind ? { kind, label: ACTIVITY_LABELS[kind] } : {}), ...(lastSeen ? { lastSeen } : {}), mentionsOpenCode }
+}
+
+export async function collectAgentActivity(run: Run = systemRun): Promise<AgentActivitySnapshot> {
+  const agents = await Promise.all(ACTIVITY_PROFILES.map(async (profile): Promise<AgentActivity> => {
+    const [logs, sessions] = await Promise.all([
+      run('hermes', ['-p', profile, 'logs', 'agent', '-n', '80', '--since', ACTIVITY_WINDOW], { benign: LOG_MISSING }).then((output) => ({ ok: true as const, output }), (error: unknown) => (error instanceof CommandError && LOG_MISSING.test(error.stdout) ? { ok: true as const, output: '' } : { ok: false as const, output: '' })),
+      run('hermes', ['-p', profile, 'sessions', 'list', '--limit', '3']).then((output) => output, () => undefined),
+    ])
+    if (!logs.ok && sessions === undefined) return { profile, availability: 'unavailable', active: false, mentionsOpenCode: false }
+    return { profile, availability: 'available', ...parseRecentActivity(logs.output, sessions) }
+  }))
+  return { agents, fetchedAt: new Date().toISOString() }
+}
+
+// ---------------------------------------------------------------------------
 // Office
 
 const officeMetadata = [
-  { name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', aliases: ['default', 'lead agent', 'lead-agent', 'leadagent'] },
-  { name: 'Lead Engineer', role: 'Lead Engineer', avatar: 'lead-engineer', workstation: 'Engineering desk', aliases: ['leadengineer', 'lead engineer', 'lead-engineer'] },
-  { name: 'OpenCode', role: 'OpenCode', avatar: 'opencode', workstation: 'Build terminal', aliases: ['opencode', 'open-code'] },
+  { name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', profile: 'default', aliases: ['default', 'lead agent', 'lead-agent', 'leadagent'] },
+  { name: 'Lead Engineer', role: 'Lead Engineer', avatar: 'lead-engineer', workstation: 'Engineering desk', profile: 'leadengineer', aliases: ['leadengineer', 'lead engineer', 'lead-engineer'] },
+  { name: 'OpenCode', role: 'OpenCode', avatar: 'opencode', workstation: 'Build terminal', profile: undefined, aliases: ['opencode', 'open-code'] },
 ] as const
 
 export const officeRooms = [
@@ -592,36 +660,65 @@ export function buildOfficeSummary(stations: OfficeStation[], runtime: RuntimeSn
   }
 }
 
+function liveState(metadata: typeof officeMetadata[number], snapshot: AgentActivitySnapshot | undefined): { state: OfficeState; probe?: AgentActivity; known: boolean } {
+  if (!snapshot) return { state: 'Unknown', known: true }
+  if (!metadata.profile) {
+    // OpenCode has no Hermes profile; it counts as working when an agent's recent log shows it being driven.
+    const driver = snapshot.agents.find((agent) => agent.mentionsOpenCode)
+    return { state: driver ? 'Working' : 'Unknown', probe: driver && { ...driver, label: 'Building via OpenCode' }, known: snapshot.agents.every((agent) => agent.availability === 'available') }
+  }
+  const probe = snapshot.agents.find((agent) => agent.profile === metadata.profile)
+  if (!probe || probe.availability === 'unavailable') return { state: 'Unknown', probe, known: false }
+  return { state: probe.active ? (probe.kind === 'chat' ? 'Collaborating' : 'Working') : 'Unknown', probe, known: true }
+}
+
 export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSnapshot, activity: ActivitySnapshot, options: OfficeBuildOptions = {}): OfficeSnapshot {
   const fetchedAt = new Date().toISOString()
   const now = typeof options.now === 'number' ? options.now : options.now ? Date.parse(options.now) : Date.now()
   const freshRuntime = isFresh(runtime.fetchedAt, now)
   const freshBoard = board.tasks.availability === 'available' && isFresh(board.fetchedAt, now)
   const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now)
+  const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now) ? options.agentActivity : undefined
   const explicitStates = options.explicitStates ?? []
   const stations = officeMetadata.map((metadata, index): OfficeStation => {
     const gateway = index === 0 ? runtime.gateways.default : index === 1 ? runtime.gateways.leadEngineer : undefined
     const task = freshBoard ? attributedTask(board.tasks.data, metadata.aliases) : undefined
     const overlay = explicitState(metadata, explicitStates, now)
     const taskWorkState = taskState(task)
+    const live = liveState(metadata, agentActivity)
     const collaboration = freshActivity ? collaborationState(activity.sessions.data, metadata.aliases) : 'Unknown'
     const stopped = gateway?.availability === 'available' && gateway.data === 'Stopped'
-    const state: OfficeState = stopped ? 'Offline' : overlay ?? (taskWorkState !== 'Unknown' ? taskWorkState : collaboration !== 'Unknown' ? collaboration : freshRuntime && freshBoard && freshActivity ? 'Idle' : 'Unknown')
+    const liveKnown = options.agentActivity ? agentActivity !== undefined && live.known : true
+    // Direct evidence of work in the last few minutes wins over a stopped gateway (CLI and cron
+    // work does not need the gateway); a Kanban task explains that work when it is running.
+    const direct: OfficeState | undefined = overlay ?? (live.state !== 'Unknown' ? (taskWorkState !== 'Unknown' ? taskWorkState : live.state) : undefined)
+    const state: OfficeState = direct ?? (stopped ? 'Offline' : taskWorkState !== 'Unknown' ? taskWorkState : collaboration !== 'Unknown' ? collaboration : freshRuntime && freshBoard && freshActivity && liveKnown ? 'Idle' : 'Unknown')
     const currentTask = board.tasks.availability === 'unavailable' ? 'Not Available' : task?.title ?? 'No attributed task'
-    const recentActivity = activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
+    const activityLabel = state === 'Working' && taskWorkState === 'Working' && task ? `Kanban: ${task.title}`
+      : state === 'Reviewing' && task ? `Reviewing: ${task.title}`
+        : ['Working', 'Collaborating'].includes(state) && live.probe?.label ? live.probe.label
+          : state === 'Offline' ? 'Gateway stopped'
+            : state === 'Idle' ? 'On a break'
+              : ''
+    const recentActivity = live.probe
+      ? live.probe.active ? `${live.probe.label ?? 'Active'}${live.probe.lastSeen ? ` (last log ${live.probe.lastSeen})` : ''}` : `No activity in the last ${ACTIVITY_WINDOW}`
+      : activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
     const runtimeProvenance = gateway ? `Gateway ${gateway.availability === 'available' ? gateway.data : 'Not Available'}` : 'OpenCode version availability is not a state signal'
     const managedIdle = state === 'Idle' ? '; Mission Control managed-idle placement policy (not agent-reported presence)' : ''
+    const liveProvenance = options.agentActivity ? `; live activity (${metadata.profile ? `hermes -p ${metadata.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
     return {
       name: metadata.name,
       role: metadata.role,
       avatar: metadata.avatar,
       workstation: metadata.workstation,
       ...roomForState(state, index),
+      seat: index + 1,
       state,
       currentTask,
       recentActivity,
-      provenance: `${runtimeProvenance}; explicit state records: ${overlay ? 'fresh declared state' : 'none'}; Kanban: ${board.tasks.availability}${freshBoard ? ' fresh' : ' stale or unavailable'}; activity: ${activity.sessions.availability}${freshActivity ? ' fresh' : ' stale or unavailable'}${managedIdle}`,
-      freshness: `Runtime ${runtime.fetchedAt}; Kanban ${board.fetchedAt}; activity ${activity.fetchedAt}`,
+      activity: activityLabel,
+      provenance: `${runtimeProvenance}; explicit state records: ${overlay ? 'fresh declared state' : 'none'}; Kanban: ${board.tasks.availability}${freshBoard ? ' fresh' : ' stale or unavailable'}; activity: ${activity.sessions.availability}${freshActivity ? ' fresh' : ' stale or unavailable'}${liveProvenance}${managedIdle}`,
+      freshness: `Runtime ${runtime.fetchedAt}; Kanban ${board.fetchedAt}; activity ${activity.fetchedAt}${agentActivity ? `; live activity ${agentActivity.fetchedAt}` : ''}`,
     }
   })
   return { stations, summary: buildOfficeSummary(stations, runtime), fetchedAt }
@@ -679,6 +776,7 @@ const knowledgeSource = cachedSource(() => collectKnowledge())
 const channelSource = cachedSource(() => collectChannels())
 const insightsSource = cachedSource(() => collectInsights(), INSIGHTS_CACHE_MS)
 const logsSource = cachedSource(() => collectLogs(), 5_000)
+const agentActivitySource = cachedSource(() => collectAgentActivity())
 
 export function getSnapshot(now = Date.now()): Promise<RuntimeSnapshot> { return runtimeSource(now) }
 export function clearSnapshotCache(): void { runtimeSource.clear() }
@@ -690,12 +788,12 @@ export function getChannels(now = Date.now()): Promise<ChannelSnapshot> { return
 export function getLogs(now = Date.now()): Promise<LogsSnapshot> { return logsSource(now) }
 
 export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
-  const [runtime, board, activity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now)])
-  return buildOfficeSnapshot(runtime, board, activity)
+  const [runtime, board, activity, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now), agentActivitySource(now)])
+  return buildOfficeSnapshot(runtime, board, activity, { agentActivity })
 }
 
 export async function getDashboard(now = Date.now()): Promise<DashboardSnapshot> {
-  const [runtime, board, calendar, activity, knowledge, channels, usage] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), insightsSource(now)])
-  const office = buildOfficeSnapshot(runtime, board, activity)
+  const [runtime, board, calendar, activity, knowledge, channels, usage, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), insightsSource(now), agentActivitySource(now)])
+  const office = buildOfficeSnapshot(runtime, board, activity, { agentActivity })
   return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, usage, commands: commandHealth() })
 }

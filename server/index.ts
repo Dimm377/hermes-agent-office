@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import express, { type NextFunction, type Request, type Response } from 'express'
+import { FolderError, folderAgents, listFolder, readFolderFile } from './folders.js'
 import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard } from './mission-control.js'
 
 const HOST = '127.0.0.1'
@@ -34,6 +35,33 @@ for (const [path, handler] of Object.entries(routes)) {
     response.json(await handler(now))
   })
 }
+// Folders: read-only view of each Hermes profile folder. Only profiles Hermes itself reports
+// (plus the two declared stations) can be opened.
+async function allowedProfiles(): Promise<string[]> {
+  const runtime = await getSnapshot()
+  return (await folderAgents(runtime.profiles.data.map((profile) => profile.name))).map((agent) => agent.profile)
+}
+async function checkedProfile(profile: string): Promise<string> {
+  if (!(await allowedProfiles()).includes(profile)) throw new FolderError('Unknown profile.', 404)
+  return profile
+}
+function folderRoute(handler: (request: Request) => Promise<unknown>) {
+  return async (request: Request, response: Response) => {
+    try {
+      response.json(await handler(request))
+    } catch (error) {
+      if (error instanceof FolderError) { response.status(error.status).json({ error: error.message }); return }
+      throw error
+    }
+  }
+}
+app.get('/api/folders', folderRoute(async () => {
+  const runtime = await getSnapshot()
+  return { agents: await folderAgents(runtime.profiles.data.map((profile) => profile.name)), fetchedAt: new Date().toISOString() }
+}))
+app.get('/api/folders/:profile/list', folderRoute(async (request) => listFolder(await checkedProfile(String(request.params.profile)), request.query.path)))
+app.get('/api/folders/:profile/file', folderRoute(async (request) => readFolderFile(await checkedProfile(String(request.params.profile)), request.query.path)))
+
 app.use('/api', (_request, response) => { response.status(404).json({ error: 'Not found' }) })
 
 if (existsSync(distDirectory)) {
