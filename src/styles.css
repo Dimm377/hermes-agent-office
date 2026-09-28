@@ -462,3 +462,31 @@ main { max-width: 1680px; }
 .task-timeline code { justify-self: start; overflow-wrap: anywhere; }
 .file-notice strong { color: var(--text); font: 600 13px inherit; }
 .file-notice { overflow-wrap: anywhere; }
+
+/* ---- Memory ---- */
+.memory-tabs { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin-top: 20px; }
+.memory-tab { align-items: center; background: var(--surface); border: 1px solid var(--border); color: var(--text); cursor: pointer; display: flex; gap: 12px; padding: 10px 12px; text-align: left; }
+.memory-tab span:last-child { display: grid; gap: 3px; }
+.memory-tab small { color: var(--text-dim); }
+.memory-tab.active { background: var(--active-bg); border-color: var(--active-border); }
+.memory-tab:disabled { cursor: not-allowed; opacity: .55; }
+.folder-glyph.small { height: 44px; width: 44px; }
+.folder-glyph.small .pixel-character { zoom: .75; }
+.memory-panel { display: grid; gap: 14px; margin-top: 16px; }
+.memory-panel > .toolbar { margin-top: 0; }
+.memory-panel > .chip-row { margin-top: 0; }
+.memory-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.memory-card-head { align-items: flex-start; display: flex; gap: 12px; justify-content: space-between; }
+.memory-card-head h2 { font-size: 20px; margin: 4px 0 10px; }
+.usage { background: var(--surface-2); border-radius: 4px; height: 10px; overflow: hidden; }
+.usage i { display: block; height: 100%; }
+.doc-meta { color: var(--text-muted); font: 12px ui-monospace, monospace; margin: 8px 0 0; }
+.doc-meta b { color: var(--text); }
+.doc-text { max-height: 420px; }
+.memory-entries { display: grid; gap: 8px; list-style: none; margin: 12px 0 0; padding: 0; }
+.memory-entries li { background: var(--surface-2); border-left: 3px solid var(--border-strong); display: grid; gap: 4px; grid-template-columns: auto minmax(0, 1fr); padding: 8px 10px; }
+.memory-entries p { font-size: 13px; line-height: 1.5; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-entries small { color: var(--text-dim); grid-column: 2; }
+.entry-index { color: var(--accent); font: 11px ui-monospace, monospace; padding-top: 2px; }
+.context-list { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+@media (max-width: 900px) { .memory-grid { grid-template-columns: minmax(0, 1fr); } }

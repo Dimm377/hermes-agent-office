@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { excludedFor, FolderError, listFolder, publicAgent, readFolderFile, resolveAgentFolders } from './folders.js'
+import { collectMemory } from './memory.js'
 import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard, getTaskDetail } from './mission-control.js'
 
 const HOST = '127.0.0.1'
@@ -64,6 +65,7 @@ function folderRoute(handler: (request: Request) => Promise<unknown>) {
     }
   }
 }
+app.get('/api/memory', folderRoute(async () => collectMemory(await agentFolders())))
 app.get('/api/folders', folderRoute(async () => ({ agents: (await agentFolders()).map(publicAgent), fetchedAt: new Date().toISOString() })))
 app.get('/api/folders/:profile/list', folderRoute(async (request) => {
   const { folder, excluded } = await openFolder(String(request.params.profile))

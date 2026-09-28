@@ -6,6 +6,7 @@ import { Calendar } from './pages/Calendar.tsx'
 import { Dashboard } from './pages/Dashboard.tsx'
 import { Folders } from './pages/Folders.tsx'
 import { Logs } from './pages/Logs.tsx'
+import { Memory } from './pages/Memory.tsx'
 import { Office } from './pages/Office.tsx'
 import { TaskBoard } from './pages/TaskBoard.tsx'
 import { RefreshContext, usePolling } from './polling.ts'
@@ -42,7 +43,7 @@ function Shell({ onRefresh }: { onRefresh: () => void }) {
     <nav aria-label="Main">{navigation.map((item) => <a href={`#/${pageSlug(item)}`} className={page === item ? 'active' : ''} aria-current={page === item ? 'page' : undefined} key={item} onClick={(event) => { event.preventDefault(); navigate(item) }}>{item}{item === 'Logs' && data && data.commands.failed > 0 && <span className="nav-badge" title="Failed CLI reads">{data.commands.failed}</span>}{item === 'Agents' && failedGateways > 0 && <span className="nav-badge" title="Gateways not running">{failedGateways}</span>}</a>)}</nav>
     <div className="sidebar-note"><span className="dot"/> READ-ONLY MODE</div><button type="button" className="sidebar-theme" onClick={toggleTheme}>{theme === 'dark' ? '☀ Light mode' : '☾ Dark mode'}</button></aside>
     <main><header><span className="header-title"><button type="button" className="icon-button" onClick={toggleSidebar} aria-controls="app-sidebar" aria-expanded={!sidebarHidden} aria-label={sidebarHidden ? 'Show menu' : 'Hide menu'} title={sidebarHidden ? 'Show menu' : 'Hide menu'}>{sidebarHidden ? '☰' : '⟨'}</button><span>MISSION CONTROL / {page.toUpperCase()}</span></span><span className="header-actions"><span className={dashboard.status === 'failed' ? 'text-bad' : ''}>{syncLabel}</span><button type="button" className="icon-button theme-toggle" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>{theme === 'dark' ? '☀' : '☾'}<span>{theme === 'dark' ? 'LIGHT' : 'DARK'}</span></button><button type="button" className="refresh-button" onClick={onRefresh} aria-label="Refresh all sources">↻ REFRESH ALL</button></span></header>
-      {page === 'Dashboard' ? <Dashboard dashboard={data} pending={dashboard.status === 'pending'} onNavigate={navigate}/> : page === 'Agents' ? <Agents runtime={data?.runtime ?? null} pending={dashboard.status === 'pending'}/> : page === 'Office' ? <Office/> : page === 'Task Board' ? <TaskBoard/> : page === 'Calendar' ? <Calendar/> : page === 'Activity' ? <Activity/> : page === 'Folders' ? <Folders/> : <Logs/>}
+      {page === 'Dashboard' ? <Dashboard dashboard={data} pending={dashboard.status === 'pending'} onNavigate={navigate}/> : page === 'Agents' ? <Agents runtime={data?.runtime ?? null} pending={dashboard.status === 'pending'}/> : page === 'Office' ? <Office/> : page === 'Task Board' ? <TaskBoard/> : page === 'Calendar' ? <Calendar/> : page === 'Activity' ? <Activity/> : page === 'Memory' ? <Memory onOpenFolders={() => navigate('Folders')}/> : page === 'Folders' ? <Folders/> : <Logs/>}
     </main></div>
 }
 

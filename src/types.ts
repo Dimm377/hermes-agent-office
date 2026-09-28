@@ -98,3 +98,8 @@ export interface TaskDetail {
   runs: { id: string; profile?: string; status?: string; outcome?: string; summary?: string; error?: string; startedAt?: string; endedAt?: string }[]
 }
 export interface TaskDetailSnapshot { task: Source<TaskDetail | null>; fetchedAt: string }
+export interface MemoryDocument { name: string; path: string; exists: boolean; size?: number; modified?: string; chars?: number; content?: string; truncated?: boolean; redactions?: number; error?: string }
+export interface MemoryStore extends MemoryDocument { entries: string[]; limit: number; used: number; percent: number }
+export interface MemorySettings { memoryEnabled: boolean; userProfileEnabled: boolean; writeApproval: boolean; provider?: string; memoryLimit: number; userLimit: number; source: 'config.yaml' | 'defaults' }
+export interface AgentMemory { profile: string; label: string; path: string; kind: 'hermes' | 'opencode'; available: boolean; reason?: string; soul?: MemoryDocument; memory?: MemoryStore; user?: MemoryStore; contextFiles: MemoryDocument[]; settings?: MemorySettings }
+export interface MemorySnapshot { agents: AgentMemory[]; fetchedAt: string }
