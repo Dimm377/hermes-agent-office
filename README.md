@@ -18,7 +18,9 @@ npm run build
 npm start          # open http://127.0.0.1:3001
 ```
 
-Checks: `npm run lint`, `npm test`, `npm run build`. Set `MISSION_CONTROL_PORT` to change the port. The server binds to `127.0.0.1` only.
+Checks: `npm run lint`, `npm test`, `npm run build`.
+
+**After pulling new code** run `npm install && npm run build` and restart `npm start` (a running `npm start` keeps serving the old API; `npm run dev` restarts the API by itself). The UI checks `/api/health` and shows a *Restart needed* banner when the server is older than the page. Set `MISSION_CONTROL_PORT` to change the port. The server binds to `127.0.0.1` only.
 
 ## Pages
 

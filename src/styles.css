@@ -490,3 +490,4 @@ main { max-width: 1680px; }
 .entry-index { color: var(--accent); font: 11px ui-monospace, monospace; padding-top: 2px; }
 .context-list { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
 @media (max-width: 900px) { .memory-grid { grid-template-columns: minmax(0, 1fr); } }
+.version-notice { margin-top: 16px; }

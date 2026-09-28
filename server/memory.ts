@@ -143,5 +143,10 @@ export async function collectAgentMemory(folder: AgentFolder): Promise<AgentMemo
 }
 
 export async function collectMemory(folders: AgentFolder[]): Promise<MemorySnapshot> {
-  return { agents: await Promise.all(folders.map(collectAgentMemory)), fetchedAt: new Date().toISOString() }
+  // One unreadable agent must not take the whole page down.
+  const agents = await Promise.all(folders.map((folder) => collectAgentMemory(folder).catch((error: unknown): AgentMemory => ({
+    profile: folder.profile, label: folder.label, path: folder.path, kind: folder.profile === 'opencode' ? 'opencode' : 'hermes',
+    available: false, reason: error instanceof Error ? error.message : 'Could not read this agent.', contextFiles: [],
+  }))))
+  return { agents, fetchedAt: new Date().toISOString() }
 }
