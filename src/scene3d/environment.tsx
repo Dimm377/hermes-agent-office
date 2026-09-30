@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { BAKSO_CART, BUILDING, COFFEE_TABLE, DESKS, FLAG, KOPI_BIKE, MEETING_TABLE, SOFA, SPARE_DESKS, STALL_ROTATION, TV, type Vec3 } from '../office3d-layout.ts'
-import { AcOutdoorUnit, AirConditioner, Armchair, Bookshelf, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, PantryCounter, PendantLamp, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock, WorkDesk } from './props.tsx'
+import { AcOutdoorUnit, AirConditioner, CompanySign, Armchair, Bookshelf, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, PantryCounter, PendantLamp, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock, WorkDesk } from './props.tsx'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
 // The building (floors, walls, windows, furniture) and its surroundings (yard, sidewalk,
@@ -82,6 +82,8 @@ function Building({ night }: { night: boolean }) {
     <GalonDispenser position={[maxX - 0.45, 0, -0.4]} rotation={-Math.PI / 2}/>
     <Fridge position={[maxX - 0.5, 0, 0.6]} rotation={-Math.PI / 2}/>
     <PantryCounter position={[maxX - 0.45, 0, 2.6]} rotation={-Math.PI / 2}/>
+    {/* The company name on the roof, above the back wall */}
+    <CompanySign position={[2.4, WALL_HEIGHT, minZ]} night={night}/>
     {/* Split ACs high on the walls */}
     <AirConditioner position={[-5.3, 2.3, minZ + 0.125]}/>
     <AirConditioner position={[TV[0], 2.3, minZ + 0.125]}/>

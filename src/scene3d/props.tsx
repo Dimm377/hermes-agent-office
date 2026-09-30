@@ -3,7 +3,7 @@ import { useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type { Vec3 } from '../office3d-layout.ts'
-import { merahPutih, screenTexture, signTexture } from './textures.ts'
+import { companySign, merahPutih, screenTexture, signTexture } from './textures.ts'
 
 // Low-poly props built from primitives. Rounded edges and PBR materials keep them from
 // looking flat; everything is procedural, so no model files are shipped.
@@ -396,4 +396,17 @@ export function AcOutdoorUnit({ position, rotation = 0 }: { position: Vec3; rota
     <group ref={fan} position={[-0.12, 0.34, 0.17]}>{[0, 1, 2].map((blade) => <mesh key={blade} rotation={[0, 0, (blade / 3) * Math.PI * 2]}><boxGeometry args={[0.04, 0.36, 0.005]}/><meshStandardMaterial color="#9aa2a6"/></mesh>)}</group>
     <RBox position={[0, 0.02, 0]} size={[0.9, 0.04, 0.36]} radius={0.01} color="#8b9297"/>
   </Group>
+}
+
+/** Rooftop company sign on two posts; lit from within in the evening. */
+export function CompanySign({ position, night }: { position: Vec3; night: boolean }) {
+  const texture = useMemo(() => companySign(), [])
+  return <group position={position}>
+    {[-2.1, 2.1].map((x) => <Cyl key={x} position={[x, 0.35, 0]} radius={0.05} height={0.7} color="#3a3f44" metalness={0.5}/>)}
+    <RBox position={[0, 1.15, -0.04]} size={[5.3, 1.1, 0.1]} radius={0.03} color="#2f3336"/>
+    <mesh position={[0, 1.15, 0.015]}>
+      <planeGeometry args={[5.1, 1]}/>
+      <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={night ? 0.85 : 0.08} roughness={0.6}/>
+    </mesh>
+  </group>
 }

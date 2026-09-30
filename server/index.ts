@@ -8,7 +8,8 @@ import { collectMemory } from './memory.js'
 import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard, getTaskDetail } from './mission-control.js'
 
 const HOST = '127.0.0.1'
-const PORT = Number(process.env.MISSION_CONTROL_PORT) || 3001
+// MISSION_CONTROL_PORT is the pre-rename name, still honoured.
+const PORT = Number(process.env.MAJUJAYA_PORT ?? process.env.MISSION_CONTROL_PORT) || 3001
 // The built UI sits next to the server: ../dist from server/*.ts (development, npm start)
 // and ../../dist from build/server/*.js (the installed package).
 const distDirectory = [new URL('../dist', import.meta.url), new URL('../../dist', import.meta.url)].map((url) => fileURLToPath(url)).find((path) => existsSync(join(path, 'index.html'))) ?? fileURLToPath(new URL('../dist', import.meta.url))
@@ -49,7 +50,7 @@ app.get('/api/tasks/:id', async (request, response) => {
   response.json(detail)
 })
 
-// Folders: read-only view of each agent's own folder. Only agents Mission Control resolved
+// Folders: read-only view of each agent's own folder. Only agents the server resolved
 // (declared stations, Hermes-reported profiles, OpenCode) can be opened.
 async function agentFolders() {
   const runtime = await getSnapshot()
@@ -92,8 +93,8 @@ if (existsSync(distDirectory)) {
 
 app.use((error: unknown, _request: Request, response: Response, _next: NextFunction) => {
   void _next
-  console.error('Mission Control request failed:', error instanceof Error ? error.message : error)
+  console.error('PT AI Maju Jaya request failed:', error instanceof Error ? error.message : error)
   response.status(500).json({ error: 'Internal error' })
 })
 
-app.listen(PORT, HOST, () => console.log(`Mission Control listening on http://${HOST}:${PORT}${existsSync(distDirectory) ? ' (serving built UI)' : ' (API only; run the Vite dev server for the UI)'}`))
+app.listen(PORT, HOST, () => console.log(`PT AI Maju Jaya listening on http://${HOST}:${PORT}${existsSync(distDirectory) ? ' (serving built UI)' : ' (API only; run the Vite dev server for the UI)'}`))

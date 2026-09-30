@@ -151,7 +151,7 @@ describe('Office snapshot', () => {
     fetchedAt: '2026-09-27T12:00:00.000Z',
   }
 
-  it('places the no-work crew in Lounge as Mission-Control-managed Idle', () => {
+  it('places the no-work crew in Lounge as server-managed Idle', () => {
     const office = buildOfficeSnapshot(runtime, { tasks: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { sessions: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { now: runtime.fetchedAt })
 
     expect(office.stations).toMatchObject([
@@ -160,7 +160,7 @@ describe('Office snapshot', () => {
       { name: 'OpenCode', room: 'Lounge', roomPosition: 'lounge-seat-3', state: 'Idle' },
     ])
     expect(office.stations[2].provenance).toContain('OpenCode version availability is not a state signal')
-    expect(office.stations[0].provenance).toContain('Mission Control managed-idle placement policy')
+    expect(office.stations[0].provenance).toContain('PT AI Maju Jaya managed-idle placement policy')
     expect(office.summary).toEqual({ declared: 3, active: 0, idle: 3, offline: 0, unknown: 0, gatewaysReachable: 2, gatewaysDeclared: 2 })
   })
 

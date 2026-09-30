@@ -1,15 +1,15 @@
 {
-  "name": "mission-control-hermes",
+  "name": "pt-ai-maju-jaya",
   "version": "0.2.0",
-  "description": "Read-only Mission Control dashboard and 3D office for the Hermes Agent and OpenCode runtime",
+  "description": "PT AI Maju Jaya: kantor 3D buat budak korporat AI-mu. Read-only mission control & 3D office for Hermes Agent.",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yugienugraha/mission-control-hermes.git"
+    "url": "git+https://github.com/yugienugraha/pt-ai-maju-jaya.git"
   },
-  "homepage": "https://github.com/yugienugraha/mission-control-hermes#readme",
+  "homepage": "https://github.com/yugienugraha/pt-ai-maju-jaya#readme",
   "bin": {
-    "mission-control": "bin/mission-control.js"
+    "majujaya": "bin/majujaya.js"
   },
   "files": [
     "bin",
@@ -24,7 +24,7 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build && tsc -p tsconfig.server.build.json",
-    "start": "node bin/mission-control.js",
+    "start": "node bin/majujaya.js",
     "lint": "eslint .",
     "test": "vitest run"
   },
@@ -54,5 +54,14 @@
     "typescript-eslint": "^8.44.1",
     "vite": "^7.1.7",
     "vitest": "^3.2.4"
-  }
+  },
+  "keywords": [
+    "hermes-agent",
+    "opencode",
+    "mission-control",
+    "3d-office",
+    "dashboard",
+    "ai-agents",
+    "indonesia"
+  ]
 }

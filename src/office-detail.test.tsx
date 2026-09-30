@@ -32,7 +32,7 @@ describe('Office characters', () => {
     const station: OfficeStation = {
       name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', room: 'Lounge', roomPosition: 'lounge-seat-1',
       state: 'Idle', currentTask: 'No attributed task', recentActivity: 'No attributed recent activity',
-      activity: 'On a break', seat: 1, provenance: 'Mission Control managed-idle placement policy', freshness: 'Runtime current',
+      activity: 'On a break', seat: 1, provenance: 'PT AI Maju Jaya managed-idle placement policy', freshness: 'Runtime current',
     }
 
     const markup = renderToStaticMarkup(<OfficeDetail station={station} onClose={vi.fn()}/>)

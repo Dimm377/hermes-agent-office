@@ -143,3 +143,18 @@ export function screenTexture(active: boolean) {
     }
   })
 }
+
+/** The company sign on the roof: PT AI MAJU JAYA in red on white, with a small subtitle. */
+export function companySign() {
+  return canvasTexture('company-sign', 1024, 200, (ctx) => {
+    ctx.fillStyle = '#fbfaf5'; ctx.fillRect(0, 0, 1024, 200)
+    ctx.fillStyle = '#c8102e'; ctx.fillRect(0, 0, 1024, 14); ctx.fillRect(0, 186, 1024, 14)
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillStyle = '#c8102e'
+    ctx.font = 'bold 104px "Arial Black", Arial, sans-serif'
+    ctx.fillText('PT AI MAJU JAYA', 512, 88, 980)
+    ctx.fillStyle = '#1d3557'
+    ctx.font = 'bold 30px Arial, sans-serif'
+    ctx.fillText('KANTOR PUSAT  ·  3D OFFICE', 512, 158, 980)
+  })
+}
