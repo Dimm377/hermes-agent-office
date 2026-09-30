@@ -235,3 +235,43 @@ describe('Office snapshot', () => {
     expect(expired.stations[0].state).toBe('Working')
   })
 })
+
+describe('calendar across profiles', () => {
+  const profileList = `\n Profile          Model                        Gateway      Alias        Distribution\n ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────\n ◆default         anthropic/claude-sonnet-4    running      —            —\n  leadengineer    openai/gpt-5.5               running      le           —\n  research        —                            stopped      —            —\n`
+  const cron = (id: string, name: string) => `  ${id} [active]\n    Name:      ${name}\n    Schedule:  0 8 * * *\n    Repeat:    ∞\n    Next run:  2026-09-28T08:00:00+07:00\n`
+
+  it('reads every profile with -p and tags each job with its profile', async () => {
+    const calls: string[][] = []
+    const calendar = await collectCalendar(async (_file, args) => {
+      calls.push(args)
+      if (args.join(' ') === 'profile list') return profileList
+      if (args[1] === 'default') return cron('a1b2c3d4', 'Morning brief')
+      if (args[1] === 'leadengineer') return cron('b2c3d4e5', 'Nightly review')
+      return 'No scheduled jobs.\n'
+    })
+    expect(calls).toContainEqual(['-p', 'leadengineer', 'cron', 'list', '--all'])
+    expect(calendar.jobs.availability).toBe('available')
+    expect(calendar.jobs.data.map((job) => [job.agent, job.name])).toEqual([['default', 'Morning brief'], ['leadengineer', 'Nightly review']])
+    expect(calendar.failedProfiles).toBeUndefined()
+  })
+
+  it('keeps the other profiles when one cron list fails, and names the failed one', async () => {
+    const calendar = await collectCalendar(async (_file, args) => {
+      if (args.join(' ') === 'profile list') return profileList
+      if (args[1] === 'research') throw new Error('boom')
+      return cron('a1b2c3d4', `Job of ${args[1]}`)
+    })
+    expect(calendar.jobs.data).toHaveLength(2)
+    expect(calendar.failedProfiles).toEqual(['research'])
+  })
+
+  it('never passes an option-like profile name to hermes', async () => {
+    const calls: string[][] = []
+    await collectCalendar(async (_file, args) => {
+      calls.push(args)
+      if (args.join(' ') === 'profile list') return profileList.replace('research        ', '--evil          ')
+      return 'No scheduled jobs.\n'
+    })
+    expect(calls.flat()).not.toContain('--evil')
+  })
+})

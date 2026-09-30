@@ -24,11 +24,13 @@ export interface RuntimeSnapshot {
   fetchedAt: string
 }
 export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number }
-export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean }
+/** `agent` is the Hermes profile the job belongs to (cron jobs are stored per profile). */
+export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean; agent?: string }
 export interface Session { title: string; preview: string; lastActive: string; id?: string; workspace?: string; source?: string; actor?: string; active?: boolean }
 export interface Skill { name: string; category: string; source: string; trust: string; status: 'enabled' }
 export interface TaskBoardSnapshot { tasks: Source<Task[]>; fetchedAt: string }
-export interface CalendarSnapshot { jobs: Source<ScheduledJob[]>; fetchedAt: string }
+/** `failedProfiles` lists profiles whose cron list could not be read while others could. */
+export interface CalendarSnapshot { jobs: Source<ScheduledJob[]>; failedProfiles?: string[]; fetchedAt: string }
 export interface ActivitySnapshot { sessions: Source<Session[]>; fetchedAt: string }
 export interface KnowledgeSnapshot { skills: Source<Skill[]>; fetchedAt: string }
 export interface Channel { name: string; status: 'Configured' | 'Connected' }
@@ -481,9 +483,24 @@ export async function collectTaskBoard(run: Run = systemRun): Promise<TaskBoardS
   return { tasks, fetchedAt: new Date().toISOString() }
 }
 
+/** Profile names passed to `hermes -p`: plain names only, never anything that looks like an option. */
+const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
+
+/**
+ * Cron jobs of every Hermes profile. Hermes stores cron per profile, so each profile from
+ * `hermes profile list` is read with `hermes -p <profile> cron list --all` and its jobs are
+ * tagged with the profile. If the profile list cannot be read, the active profile is read as before.
+ */
 export async function collectCalendar(run: Run = systemRun): Promise<CalendarSnapshot> {
-  const jobs = await read(run, 'hermes', ['cron', 'list', '--all'], parseCronJobs, [])
-  return { jobs, fetchedAt: new Date().toISOString() }
+  const fetchedAt = new Date().toISOString()
+  const profiles = await read(run, 'hermes', ['profile', 'list'], parseProfiles, [])
+  const names = profiles.availability === 'available' ? profiles.data.map((profile) => profile.name).filter((name) => PROFILE_NAME.test(name)) : []
+  if (names.length === 0) return { jobs: await read(run, 'hermes', ['cron', 'list', '--all'], parseCronJobs, []), fetchedAt }
+  const results = await Promise.all(names.map((name) => read(run, 'hermes', ['-p', name, 'cron', 'list', '--all'], parseCronJobs, [])))
+  if (results.every((result) => result.availability !== 'available')) return { jobs: results[0], fetchedAt }
+  const jobs = results.flatMap((result, index) => result.availability === 'available' ? result.data.map((job) => ({ ...job, agent: names[index] })) : [])
+  const failedProfiles = names.filter((_, index) => results[index].availability !== 'available')
+  return { jobs: { availability: 'available', data: jobs }, ...(failedProfiles.length ? { failedProfiles } : {}), fetchedAt }
 }
 
 export async function collectActivity(run: Run = systemRun): Promise<ActivitySnapshot> {

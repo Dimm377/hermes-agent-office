@@ -74,7 +74,7 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
 
   Each agent has its own desk. An agent replying to a chat walks to the meeting table; one running a cron job, tools or a Kanban task sits at its desk with a speech bubble saying what it is doing. Agents walk along the aisle and use the entrance, never through furniture or walls. Idle agents do not just sit: every 32 seconds each one moves on to another stop, such as relaxing in the lounge, ping-pong, arcade games or the console in the game room, getting water from the galon, the kitchen, bakso on the cart's stools, coffee at the bike, or a stroll to the flag or the bookshelf. A dashed bubble says where they are. This wandering is decorative only (the same clock-based route for everyone), and the Idle state itself comes from the server. Click an agent for its detail dialog, with three tabs: **Overview** (state, task, provenance, freshness), **Folder** (that agent's own folder, read-only, as on the Folders page) and **Memory** (its SOUL.md, MEMORY.md, USER.md and context files).
 - **Task Board**: Hermes Kanban in board order (triage → todo → scheduled → ready → running → blocked → review → done) with search, assignee filter and priority. Click a card for its full detail from `hermes kanban show <id> --json`: description, result or latest summary, workspace, branch, skills, model, timestamps, dependencies (clickable), runs, comments and activity. Free text is secret-redacted; only ids on the current board can be opened.
-- **Calendar**: a month calendar of Hermes cron runs (upcoming runs from today, repeating jobs, overdue runs and last-run outcomes, read from 5-field cron expressions and `every …` intervals, in the Hermes host's local time), plus the list of jobs with status, next run, overdue and last-run outcome. Paused jobs only show their last run.
+- **Calendar**: a month calendar of the cron runs of every agent (each job is labelled with its agent, and the calendar can be filtered by agent) (upcoming runs from today, repeating jobs, overdue runs and last-run outcomes, read from 5-field cron expressions and `every …` intervals, in the Hermes host's local time), plus the list of jobs with status, next run, overdue and last-run outcome. Paused jobs only show their last run.
 - **Activity**: the 20 most recent sessions with search.
 - **Memory**: per agent, what it carries into every session (following the Hermes memory and context-file docs):
   - `SOUL.md` (identity, system-prompt slot #1)
@@ -93,7 +93,7 @@ Navigation is a drawer, closed by default like a game menu: open it with the ☰
 The server uses only these fixed, read-only commands:
 - `hermes profile list`, `hermes -p leadengineer gateway status`, `opencode --version`
 - `hermes kanban list --json`, `hermes kanban show <id> --json` (task detail)
-- `hermes cron list --all`, `hermes sessions list --limit 20`, `hermes skills list --enabled-only`
+- `hermes -p <profile> cron list --all` for every profile in `hermes profile list` (Hermes keeps cron jobs per profile), `hermes sessions list --limit 20`, `hermes skills list --enabled-only`
 - `hermes status --all`, `hermes insights --days 7`, `hermes logs <agent|gateway|errors> -n 200`
 - for live Office activity: `hermes -p <default|leadengineer> logs agent -n 80 --since 3m` and `hermes -p <default|leadengineer> sessions list --limit 3`
 

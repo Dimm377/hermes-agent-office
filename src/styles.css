@@ -660,3 +660,7 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
   .month-legend { margin-left: 0; }
 }
 .month-day-detail strong { font-size: 14px; }
+.month-filter { align-items: center; display: inline-flex; gap: 6px; font: 11px ui-monospace, monospace; color: var(--text-muted); }
+.month-filter select { background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); font: 12px inherit; padding: 4px 6px; }
+.month-day-detail .chip, .job-agent { margin-left: 8px; }
+.job-agent { font-size: 11px; vertical-align: middle; }

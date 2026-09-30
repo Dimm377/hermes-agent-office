@@ -5,7 +5,7 @@ import type { ScheduledJob } from './types.ts'
 // (ignoring the offset), so nothing shifts when the browser is in another time zone.
 
 export type EntryKind = 'run' | 'interval' | 'overdue' | 'last-ok' | 'last-failed'
-export interface CalendarEntry { job: string; kind: EntryKind; label: string }
+export interface CalendarEntry { job: string; kind: EntryKind; label: string; agent?: string }
 
 /** yyyy-mm-dd for a calendar day. */
 export function dayKey(year: number, month: number, day: number): string {
@@ -61,12 +61,13 @@ export function monthEntries(jobs: ScheduledJob[], year: number, month: number, 
   const add = (key: string, entry: CalendarEntry) => entries.set(key, [...(entries.get(key) ?? []), entry])
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   for (const job of jobs) {
+    const tag = job.agent ? { agent: job.agent } : {}
     const status = (job.status ?? '').toLowerCase()
     const schedules = !['paused', 'completed', 'done', 'disabled'].includes(status)
     const next = wallClock(job.nextRun)
     const last = wallClock(job.lastRun)
-    if (last && last.day.startsWith(dayKey(year, month, 1).slice(0, 7))) add(last.day, { job: job.name, kind: job.lastRunOk === false ? 'last-failed' : 'last-ok', label: last.time })
-    if (job.overdue && next) { add(next.day, { job: job.name, kind: 'overdue', label: next.time }) }
+    if (last && last.day.startsWith(dayKey(year, month, 1).slice(0, 7))) add(last.day, { ...tag, job: job.name, kind: job.lastRunOk === false ? 'last-failed' : 'last-ok', label: last.time })
+    if (job.overdue && next) { add(next.day, { ...tag, job: job.name, kind: 'overdue', label: next.time }) }
     if (!schedules) continue
     const cron = parseCron(job.schedule)
     const interval = job.schedule.match(/^every\s+(\d+)\s*([mhd])/i)
@@ -76,7 +77,7 @@ export function monthEntries(jobs: ScheduledJob[], year: number, month: number, 
       if (cron) {
         if (!cronRunsOn(cron, year, month, day)) continue
         const count = cron.hours.length * cron.minutes.length
-        add(key, count > 3 ? { job: job.name, kind: 'interval', label: `${count}× a day` } : { job: job.name, kind: 'run', label: cron.hours.flatMap((hour) => cron.minutes.map((minute) => `${pad(hour)}:${pad(minute)}`)).join(', ') })
+        add(key, count > 3 ? { ...tag, job: job.name, kind: 'interval', label: `${count}× a day` } : { ...tag, job: job.name, kind: 'run', label: cron.hours.flatMap((hour) => cron.minutes.map((minute) => `${pad(hour)}:${pad(minute)}`)).join(', ') })
       } else if (interval) {
         const amount = Number(interval[1])
         const unit = interval[2].toLowerCase()
@@ -84,10 +85,10 @@ export function monthEntries(jobs: ScheduledJob[], year: number, month: number, 
           const start = next?.day ?? today
           const gap = Math.round((Date.parse(key) - Date.parse(start)) / 86_400_000)
           if (gap < 0 || gap % amount !== 0) continue
-          add(key, { job: job.name, kind: 'run', label: next?.time ?? '' })
-        } else add(key, { job: job.name, kind: 'interval', label: job.schedule })
+          add(key, { ...tag, job: job.name, kind: 'run', label: next?.time ?? '' })
+        } else add(key, { ...tag, job: job.name, kind: 'interval', label: job.schedule })
       } else if (next && next.day === key) {
-        add(key, { job: job.name, kind: 'run', label: next.time })
+        add(key, { ...tag, job: job.name, kind: 'run', label: next.time })
       }
     }
   }
