@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { BAKSO_CART, BUILDING, COFFEE_TABLE, DESKS, FLAG, KOPI_BIKE, MEETING_TABLE, SOFA, SPARE_DESKS, type Vec3 } from '../office3d-layout.ts'
+import { BAKSO_CART, BUILDING, COFFEE_TABLE, DESKS, FLAG, KOPI_BIKE, MEETING_TABLE, SOFA, SPARE_DESKS, STALL_ROTATION, TV, type Vec3 } from '../office3d-layout.ts'
 import { AcOutdoorUnit, AirConditioner, Armchair, Bookshelf, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, PantryCounter, PendantLamp, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock, WorkDesk } from './props.tsx'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
@@ -71,12 +71,12 @@ function Building({ night }: { night: boolean }) {
     <Plant position={[-0.4, 0, -4.7]} size={0.9}/>
     <WallClock position={[-3.6, 2.35, minZ + 0.14]}/>
     {/* Lounge */}
-    <Sofa position={SOFA}/>
+    <Sofa position={SOFA} rotation={Math.PI}/>
     <Armchair position={[2.1, 0, -1.9]} rotation={Math.PI / 2} color="#d9784a"/>
     <Armchair position={[7.1, 0, -1.9]} rotation={-Math.PI / 2} color="#3d7fd6"/>
     <CoffeeTable position={COFFEE_TABLE}/>
-    <RBox position={[4.6, 0.3, -0.95]} size={[1.8, 0.6, 0.45]} radius={0.03} color="#6b4a32"/>
-    <group position={[4.6, 1.25, -0.95]} rotation={[0, Math.PI, 0]}><Television position={[0, 0, 0]}/></group>
+    <RBox position={[TV[0], 0.3, TV[2]]} size={[1.8, 0.6, 0.45]} radius={0.03} color="#6b4a32"/>
+    <Television position={[TV[0], 1.35, minZ + 0.17]}/>
     <Plant position={[2.1, 0, -4.6]}/>
     {/* Pantry: galon dispenser, fridge and counter */}
     <GalonDispenser position={[maxX - 0.45, 0, -0.4]} rotation={-Math.PI / 2}/>
@@ -84,7 +84,7 @@ function Building({ night }: { night: boolean }) {
     <PantryCounter position={[maxX - 0.45, 0, 2.6]} rotation={-Math.PI / 2}/>
     {/* Split ACs high on the walls */}
     <AirConditioner position={[-5.3, 2.3, minZ + 0.125]}/>
-    <AirConditioner position={[SOFA[0], 2.3, minZ + 0.125]}/>
+    <AirConditioner position={[TV[0], 2.3, minZ + 0.125]}/>
     <AirConditioner position={[minX + 0.125, 2.3, 2.6]} rotation={Math.PI / 2}/>
     {/* Pendant lamps: off by day, warm light in the evening */}
     {[...DESKS.map(([x, , z]): Vec3 => [x, 2.45, z + 0.2]), ...SPARE_DESKS.map(([x, , z]): Vec3 => [x, 2.45, z]), [MEETING_TABLE[0], 2.3, MEETING_TABLE[2]] as Vec3, [COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2]] as Vec3, [8.2, 2.4, 1.2] as Vec3].map((position) => <PendantLamp key={position.join(',')} position={position} night={night}/>)}
@@ -95,6 +95,7 @@ function Outdoors({ night }: { night: boolean }) {
   const lawn = useMemo(() => grass([14, 12]), [])
   const road = useMemo(() => asphalt([8, 1]), [])
   const sidewalk = useMemo(() => pavingStones([14, 2]), [])
+  const gang = useMemo(() => pavingStones([2, 5]), [])
   return <group>
     <Floor position={[0, -0.02, 2]} size={[60, 44]} map={lawn} roughness={1}/>
     <Floor position={[0, -0.005, 7.1]} size={[34, 5]} map={sidewalk} roughness={0.9}/>
@@ -103,17 +104,22 @@ function Outdoors({ night }: { night: boolean }) {
     <Floor position={[5.8, 0, 4.7]} size={[1.8, 1]} map={sidewalk}/>
     {/* Merah Putih by the entrance */}
     <FlagPole position={FLAG}/>
-    {/* Street food on the sidewalk: gerobak bakso (stools on the street side) and kopi keliling */}
-    <Gerobak position={BAKSO_CART} night={night}/>
-    <Vendor position={[BAKSO_CART[0] - 1.6, 0, BAKSO_CART[2]]} rotation={Math.PI / 2} shirt="#f1f1ec" hat="peci"/>
-    <KopiSepeda position={KOPI_BIKE} night={night}/>
-    <Vendor position={[KOPI_BIKE[0] - 1.35, 0, KOPI_BIKE[2] - 0.1]} rotation={Math.PI / 2} shirt="#2f6d8f" hat="cap"/>
-    {/* AC outdoor units against the outside walls */}
+    {/* The gang (alley) left of the building, with the street food out of the main view */}
+    <Floor position={[-11.4, -0.008, -0.4]} size={[3.6, 10]} map={gang} roughness={0.9}/>
+    <group position={BAKSO_CART} rotation={[0, STALL_ROTATION, 0]}>
+      <Gerobak position={[0, 0, 0]} night={night}/>
+      <Vendor position={[-1.6, 0, 0]} rotation={Math.PI / 2} shirt="#f1f1ec" hat="peci"/>
+    </group>
+    <group position={KOPI_BIKE} rotation={[0, STALL_ROTATION, 0]}>
+      <KopiSepeda position={[0, 0, 0]} night={night}/>
+      <Vendor position={[-1.35, 0, -0.1]} rotation={Math.PI / 2} shirt="#2f6d8f" hat="cap"/>
+    </group>
+    {/* AC outdoor units behind the building */}
     <AcOutdoorUnit position={[-5.3, 0, BUILDING.minZ - 0.45]} rotation={Math.PI}/>
-    <AcOutdoorUnit position={[BUILDING.minX - 0.45, 0, 2.6]} rotation={-Math.PI / 2}/>
+    <AcOutdoorUnit position={[TV[0] - 1.6, 0, BUILDING.minZ - 0.45]} rotation={Math.PI}/>
     <StreetLamp position={[-8, 0, 9.3]} night={night}/>
     <StreetLamp position={[4, 0, 9.3]} night={night}/>
-    {[[-12, -7, 1.3], [12.5, -6.5, 1.2], [-13, 2, 1.1], [13, 3, 1.3], [-10.5, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].map(([x, z, size]) => <Tree key={`${x}${z}`} position={[x, 0, z]} size={size}/>)}
+    {[[-12.8, -7.4, 1.3], [12.5, -6.5, 1.2], [-14.8, 2.6, 1.1], [13, 3, 1.3], [-10.5, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].map(([x, z, size]) => <Tree key={`${x}${z}`} position={[x, 0, z]} size={size}/>)}
   </group>
 }
 

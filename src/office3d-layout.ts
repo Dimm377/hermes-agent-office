@@ -4,11 +4,11 @@ import type { OfficeStation } from './types.ts'
 // Kept apart from the scene so it can be tested.
 //
 //   z -5 ┌──────────── back wall ─────────────┐
-//        │ agent desks      │  lounge (sofa, TV)│
-//        │ spare desks      │  armchairs  pantry│
-//        │ meeting table    │       galon, fridge│
+//   gang │ agent desks      │  lounge (TV, sofa)│
+//  bakso │ spare desks      │  armchairs  pantry│
+//   kopi │ meeting table    │       galon, fridge│
 //   z  4 └── low front wall ─── entrance ───────┘
-//        sidewalk · gerobak bakso · kopi keliling (bicycle) · flag
+//        sidewalk · flag      (street food sits in the gang left of the building)
 //        road
 
 export type Vec3 = [number, number, number]
@@ -26,20 +26,27 @@ export const SPARE_DESKS: Vec3[] = [[-5.9, 0, -1], [-3.3, 0, -1]]
 export const AISLE_Z = 0.4
 export const MEETING_TABLE: Vec3 = [-5.2, 0, 2.2]
 export const MEETING_SEATS: Vec3[] = [[-6.6, 0, 2.2], [-3.8, 0, 2.2], [-5.2, 0, 0.95]]
-export const SOFA: Vec3 = [4.6, 0, -4]
-export const LOUNGE_SEATS: Vec3[] = [[4, 0, -3.55], [2.5, 0, -1.9], [6.7, 0, -1.9]]
-export const COFFEE_TABLE: Vec3 = [5, 0, -2.5]
-/** Gap in the low front wall, and the walking line along the street edge of the sidewalk (in front of the carts). */
+/** The TV hangs on the back wall; the sofa faces it (backrest towards the aisle). */
+export const TV: Vec3 = [4.6, 0, -4.8]
+export const SOFA: Vec3 = [4.6, 0, -1.3]
+export const LOUNGE_SEATS: Vec3[] = [[4, 0, -1.8], [2.5, 0, -2.9], [6.7, 0, -2.9]]
+const LOUNGE_FACING = [Math.PI, Math.PI / 2, -Math.PI / 2]
+export const COFFEE_TABLE: Vec3 = [4.6, 0, -2.9]
+/** Gap in the low front wall, and the walking line along the sidewalk just outside it. */
 export const ENTRANCE_X = 5.8
-export const SIDEWALK_Z = 8.9
+export const SIDEWALK_Z = 5.4
+/** Walking line up the gang (alley) along the left outside wall, between the wall and the carts. */
+export const SIDE_LANE_X = -10.15
 /** Lounge agents step to this lane first, so they pass between the armchair and the TV. */
 export const LOUNGE_LANE_X = 3.1
-export const BAKSO_CART: Vec3 = [-3.5, 0, 7.4]
-export const KOPI_BIKE: Vec3 = [1.2, 0, 7.5]
+/** Street food parks in the gang, turned so its stools and customers face the building. */
+export const BAKSO_CART: Vec3 = [-11.9, 0, -2.3]
+export const KOPI_BIKE: Vec3 = [-11.9, 0, 1.6]
+export const STALL_ROTATION = Math.PI / 2
 export const FLAG: Vec3 = [8.4, 0, 5.6]
 
-export const CAMERA_TARGET: Vec3 = [0.4, 0.6, 2.4]
-export const CAMERA_OFFSET: Vec3 = [-3.2, 12.5, 15.5]
+export const CAMERA_TARGET: Vec3 = [-1.9, 0.6, 0.4]
+export const CAMERA_OFFSET: Vec3 = [-3.4, 13.4, 16.6]
 /** How far the view may be panned (camera target bounds), so the office never leaves the screen. */
 export const PAN_BOUNDS = { minX: -12, maxX: 12, minZ: -7, maxZ: 11 }
 
@@ -57,7 +64,7 @@ export function placementFor(station: OfficeStation): Placement {
   const seat = Math.min(Math.max(station.seat, 1), 3) - 1
   if (station.room === 'Lounge') {
     const [x, y, z] = LOUNGE_SEATS[seat]
-    return { position: [x, y, z], facing: seat === 0 ? 0 : seat === 1 ? Math.PI / 2 : -Math.PI / 2, seated: true }
+    return { position: [x, y, z], facing: LOUNGE_FACING[seat], seated: true }
   }
   if (station.roomPosition === 'meeting-area') {
     const [x, y, z] = MEETING_SEATS[seat]
@@ -68,26 +75,31 @@ export function placementFor(station: OfficeStation): Placement {
   return { position: [x, y, z - 0.75], facing: 0, seated: station.state === 'Working' || station.state === 'Reviewing' }
 }
 
-const outside = (z: number) => z > BUILDING.maxZ
+const outside = ([x, z]: [number, number]) => z > BUILDING.maxZ || x < BUILDING.minX || x > BUILDING.maxX
+const inGang = ([x]: [number, number]) => x < BUILDING.minX
 const inLounge = ([x, z]: [number, number]) => x > 1.5 && x < 7.8 && z < -0.6
 
 /**
  * Waypoints from one spot to another, so agents walk around furniture instead of through it:
- * inside along the aisle (lounge spots via the lounge lane), and in or out through the entrance
- * to the sidewalk. The last point is always the destination.
+ * inside along the aisle (lounge spots via the lounge lane), in or out through the entrance,
+ * along the sidewalk, and up the gang's lane to the street food. The last point is always the
+ * destination.
  */
 export function walkPath(from: [number, number], to: [number, number]): [number, number][] {
   if (Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.3) return [to]
   const route: [number, number][] = [from]
   const toAisle = (point: [number, number]): [number, number][] => inLounge(point) ? [[LOUNGE_LANE_X, point[1]], [LOUNGE_LANE_X, AISLE_Z]] : [[point[0], AISLE_Z]]
-  if (!outside(from[1]) && !outside(to[1])) {
+  const toSidewalk = (point: [number, number]): [number, number][] => inGang(point) ? [[SIDE_LANE_X, point[1]], [SIDE_LANE_X, SIDEWALK_Z]] : [[point[0], SIDEWALK_Z]]
+  if (!outside(from) && !outside(to)) {
     route.push(...toAisle(from), ...toAisle(to).reverse())
-  } else if (outside(from[1]) && outside(to[1])) {
-    route.push([from[0], SIDEWALK_Z], [to[0], SIDEWALK_Z])
-  } else if (outside(to[1])) {
-    route.push(...toAisle(from), [ENTRANCE_X, AISLE_Z], [ENTRANCE_X, SIDEWALK_Z], [to[0], SIDEWALK_Z])
+  } else if (inGang(from) && inGang(to)) {
+    route.push([SIDE_LANE_X, from[1]], [SIDE_LANE_X, to[1]])
+  } else if (outside(from) && outside(to)) {
+    route.push(...toSidewalk(from), ...toSidewalk(to).reverse())
+  } else if (outside(to)) {
+    route.push(...toAisle(from), [ENTRANCE_X, AISLE_Z], [ENTRANCE_X, SIDEWALK_Z], ...toSidewalk(to).reverse())
   } else {
-    route.push([from[0], SIDEWALK_Z], [ENTRANCE_X, SIDEWALK_Z], [ENTRANCE_X, AISLE_Z], ...toAisle(to).reverse())
+    route.push(...toSidewalk(from), [ENTRANCE_X, SIDEWALK_Z], [ENTRANCE_X, AISLE_Z], ...toAisle(to).reverse())
   }
   route.push(to)
   // Drop the start and any waypoint that does not move the agent somewhere new.
@@ -102,7 +114,12 @@ export function walkPath(from: [number, number], to: [number, number]): [number,
 
 export interface IdleStop { key: string; label: string; spots: Placement[] }
 const spot = (x: number, z: number, facing: number, seated = false): Placement => ({ position: [x, 0, z], facing, seated })
-const LOUNGE_FACING = [0, Math.PI / 2, -Math.PI / 2]
+/** A spot given in a stall's own coordinates (as if unrotated), placed in the world. */
+function stallSpot(stall: Vec3, x: number, z: number, facing: number, seated = false): Placement {
+  const cos = Math.cos(STALL_ROTATION)
+  const sin = Math.sin(STALL_ROTATION)
+  return spot(stall[0] + x * cos + z * sin, stall[2] - x * sin + z * cos, facing + STALL_ROTATION, seated)
+}
 
 /**
  * Where idle agents spend their time. Each stop has one spot per seat, so agents that happen to
@@ -111,14 +128,14 @@ const LOUNGE_FACING = [0, Math.PI / 2, -Math.PI / 2]
 export const IDLE_STOPS: IdleStop[] = [
   { key: 'lounge', label: 'Santai di lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
   { key: 'galon', label: 'Ambil air galon', spots: [spot(8.35, -0.4, Math.PI / 2), spot(8.2, -1.05, 2.2), spot(8.2, 0.3, 1.1)] },
-  // On the gerobak's plastic stools, street side, facing the cart.
-  { key: 'bakso', label: 'Makan bakso', spots: [spot(BAKSO_CART[0] + 0.5, BAKSO_CART[2] + 1.1, Math.PI, true), spot(BAKSO_CART[0] - 0.3, BAKSO_CART[2] + 1.2, Math.PI, true), spot(BAKSO_CART[0] + 1.3, BAKSO_CART[2] + 0.9, -2.4)] },
+  // On the gerobak's plastic stools, facing the cart.
+  { key: 'bakso', label: 'Makan bakso', spots: [stallSpot(BAKSO_CART, 0.5, 1.1, Math.PI, true), stallSpot(BAKSO_CART, -0.3, 1.2, Math.PI, true), stallSpot(BAKSO_CART, 1.3, 0.9, -2.4)] },
   { key: 'dapur', label: 'Ke dapur', spots: [spot(8.25, 2.6, Math.PI / 2), spot(8.3, 0.65, Math.PI / 2), spot(8.25, 3.3, Math.PI / 2)] },
-  { key: 'kopi', label: 'Ngopi di kopi keliling', spots: [spot(KOPI_BIKE[0] - 0.5, KOPI_BIKE[2] + 0.85, Math.PI), spot(KOPI_BIKE[0] + 0.5, KOPI_BIKE[2] + 0.85, Math.PI), spot(KOPI_BIKE[0] + 1.45, KOPI_BIKE[2] + 0.3, -Math.PI / 2)] },
+  { key: 'kopi', label: 'Ngopi di kopi keliling', spots: [stallSpot(KOPI_BIKE, -0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 1.45, 0.3, -Math.PI / 2)] },
   { key: 'jalan', label: 'Jalan-jalan', spots: [spot(FLAG[0] - 0.8, FLAG[2] + 0.3, Math.PI / 2), spot(BUILDING.minX + 0.95, -0.9, -Math.PI / 2), spot(1.3, -4.4, Math.PI)] },
 ]
 /** How long an idle agent stays at one stop (walking included). */
-export const IDLE_STOP_MS = 24_000
+export const IDLE_STOP_MS = 32_000
 const IDLE_ROUTE = ['lounge', 'galon', 'lounge', 'bakso', 'jalan', 'lounge', 'kopi', 'dapur']
 
 /**

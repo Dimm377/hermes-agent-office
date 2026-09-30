@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -51,6 +51,18 @@ describe('idle agents', () => {
     expect(back.findIndex(([x, z]) => x === ENTRANCE_X && z === SIDEWALK_Z)).toBeLessThan(back.findIndex(([x, z]) => x === ENTRANCE_X && z === AISLE_Z))
     // Every waypoint outside is on the sidewalk side, never through the front wall.
     for (const [x, z] of out) if (z > BUILDING.maxZ - 0.3 && z < BUILDING.maxZ + 0.3) expect(x).toBe(ENTRANCE_X)
+  })
+
+  it('reach the street food in the gang by the side lane, not through the building wall', () => {
+    const bakso = IDLE_STOPS.find((stop) => stop.key === 'bakso')!.spots[0].position
+    const path = walkPath([8.35, -0.4], [bakso[0], bakso[2]])
+    expect(path).toContainEqual([ENTRANCE_X, SIDEWALK_Z])
+    expect(path).toContainEqual([SIDE_LANE_X, SIDEWALK_Z])
+    expect(path).toContainEqual([SIDE_LANE_X, bakso[2]])
+    for (const [x, z] of path) expect(x < BUILDING.minX || z > BUILDING.maxZ || (x === ENTRANCE_X) || z === AISLE_Z || x === 8.35).toBe(true)
+    const kopi = IDLE_STOPS.find((stop) => stop.key === 'kopi')!.spots[1].position
+    expect(walkPath([bakso[0], bakso[2]], [kopi[0], kopi[2]])).toEqual([[SIDE_LANE_X, bakso[2]], [SIDE_LANE_X, kopi[2]], [kopi[0], kopi[2]]])
+    for (const stop of IDLE_STOPS.filter((item) => ['bakso', 'kopi'].includes(item.key))) for (const { position } of stop.spots) expect(position[0]).toBeLessThan(SIDE_LANE_X)
   })
 
   it('rotate between stops over time, each seat on its own spot', () => {

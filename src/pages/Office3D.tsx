@@ -51,7 +51,7 @@ function Character({ station, placement, onSelect, anchor }: { station: OfficeSt
         path.current.shift()
       } else {
         walking = true
-        group.position.add(toNext.normalize().multiplyScalar(Math.min(distance, delta * 2.2)))
+        group.position.add(toNext.normalize().multiplyScalar(Math.min(distance, delta * 2.6)))
         const heading = Math.atan2(toNext.x, toNext.z)
         group.rotation.y += Math.atan2(Math.sin(heading - group.rotation.y), Math.cos(heading - group.rotation.y)) * 0.25
       }
@@ -152,7 +152,7 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
     const offset = new THREE.Vector3(...CAMERA_OFFSET)
     // Narrow (portrait) views need to back off so the whole building fits across.
     offset.setLength(offset.length() * Math.max(1, 1.2 / aspect))
-    const focus = target.clone().set(CAMERA_TARGET[0], CAMERA_TARGET[1], aspect < 1 ? 0.8 : CAMERA_TARGET[2])
+    const focus = target.clone().set(aspect < 1 ? -0.4 : CAMERA_TARGET[0], CAMERA_TARGET[1], aspect < 1 ? 0.8 : CAMERA_TARGET[2])
     const orbit = controls.current
     // An undamped update applies and clears any momentum left from an earlier drag,
     // so it has to happen before the camera is placed, not after.
