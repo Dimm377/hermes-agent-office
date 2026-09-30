@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -65,11 +65,31 @@ describe('idle agents', () => {
     for (const stop of IDLE_STOPS.filter((item) => ['bakso', 'kopi'].includes(item.key))) for (const { position } of stop.spots) expect(position[0]).toBeLessThan(SIDE_LANE_X)
   })
 
+  it('enter the game room through its door, not through the lounge wall', () => {
+    for (const key of ['game', 'arcade']) {
+      for (const { position } of IDLE_STOPS.find((stop) => stop.key === key)!.spots) {
+        const path = walkPath([4, -1.8], [position[0], position[2]])
+        // Every crossing of the wall line x = GAME_ROOM.minX happens inside the door.
+        let previous: [number, number] = [4, -1.8]
+        for (const point of path) {
+          if ((previous[0] - GAME_ROOM.minX) * (point[0] - GAME_ROOM.minX) < 0) {
+            expect(point[1]).toBe(previous[1])
+            expect(point[1]).toBeGreaterThan(GAME_DOOR.fromZ)
+            expect(point[1]).toBeLessThan(GAME_DOOR.toZ)
+            expect(point[1]).toBe(GAME_LANE_Z)
+          }
+          previous = point
+        }
+        expect(path.at(-1)).toEqual([position[0], position[2]])
+      }
+    }
+  })
+
   it('rotate between stops over time, each seat on its own spot', () => {
     const seen = new Set<string>()
-    for (let step = 0; step < 8; step += 1) seen.add(idleStop(1, step * IDLE_STOP_MS).stop.key)
+    for (let step = 0; step < IDLE_ROUTE.length; step += 1) seen.add(idleStop(1, step * IDLE_STOP_MS).stop.key)
     expect(seen).toEqual(new Set(IDLE_STOPS.map((stop) => stop.key)))
-    for (let step = 0; step < 8; step += 1) {
+    for (let step = 0; step < IDLE_ROUTE.length; step += 1) {
       const spots = [1, 2, 3].map((seat) => idleStop(seat, step * IDLE_STOP_MS).placement.position.join(','))
       expect(new Set(spots).size).toBe(3)
     }

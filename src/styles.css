@@ -596,3 +596,67 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .office-3d { isolation: isolate; }
 .office-stage:has(.office-panel) .office-3d-tools { right: min(424px, calc(100% - 12px)); }
 @media (max-width: 700px) { .office-stage:has(.office-panel) .office-3d-tools { display: none; } }
+
+/* Task Board and Calendar over the office */
+.office-overlay { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 10px; bottom: 12px; box-shadow: 0 20px 60px #0008; display: flex; flex-direction: column; left: 12px; position: absolute; right: 12px; top: 56px; z-index: 7; }
+.office-overlay-head { align-items: center; border-bottom: 1px solid var(--border); display: flex; gap: 10px; padding: 10px 14px; }
+.office-overlay-head h2 { font-size: 18px; letter-spacing: -.02em; margin: 0 auto 0 0; }
+.office-overlay-body { overflow: auto; padding: 14px 18px 18px; }
+.office-overlay .page-title { padding: 0 0 10px; }
+.office-overlay .page-title h1 { display: none; }
+.office-overlay .page-title .eyebrow { margin-bottom: 4px; }
+.office-overlay .page-title > p:last-child { font-size: 13px; margin: 0; }
+
+/* Agent dialog: header, tabs, and a wider body for the folder and memory tabs */
+.detail-head { align-items: center; display: flex; gap: 14px; }
+.detail-head h2 { margin: 2px 0 6px; }
+.detail-head .detail-avatar { flex: none; }
+.detail-tabs { border-bottom: 1px solid var(--border); display: flex; gap: 4px; margin: 18px 0 14px; }
+.detail-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--text-muted); cursor: pointer; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; padding: 8px 12px; }
+.detail-tabs button.active { border-bottom-color: var(--accent); color: var(--text); }
+.office-backdrop .office-detail.wide { width: min(1100px, 100%); }
+.detail-body .office-detail-grid { margin-top: 12px; }
+.embedded-folder .breadcrumb { margin-top: 0; }
+.embedded-folder .folder-browser { max-height: 60vh; }
+
+/* Month calendar of cron runs */
+.month-view { display: grid; gap: 12px; margin-bottom: 18px; }
+.month-head { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+.month-head h2 { font-size: 18px; margin: 0 6px; min-width: 150px; text-align: center; }
+.month-legend { align-items: center; color: var(--text-muted); display: inline-flex; flex-wrap: wrap; font: 11px ui-monospace, monospace; gap: 6px; margin-left: auto; }
+.month-legend i, .month-dots i { border-radius: 50%; display: inline-block; height: 8px; width: 8px; }
+.month-grid { display: grid; gap: 4px; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.month-weekday { color: var(--text-dim); font: 11px ui-monospace, monospace; letter-spacing: .06em; padding: 2px 6px; text-transform: uppercase; }
+.month-cell { align-content: start; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; display: grid; font: inherit; gap: 3px; min-height: 92px; min-width: 0; padding: 6px; text-align: left; }
+.month-cell.empty { background: transparent; border-color: transparent; cursor: default; }
+.month-cell.past { opacity: .6; }
+.month-cell.today { border-color: var(--accent); }
+.month-cell.selected { box-shadow: inset 0 0 0 2px var(--active-border); }
+.month-day { font: 600 12px ui-monospace, monospace; }
+.month-entry { border-left: 3px solid currentColor; border-radius: 3px; font-size: 11px; line-height: 1.3; overflow: hidden; padding: 1px 5px; text-overflow: ellipsis; white-space: nowrap; }
+.month-entry b { font-weight: 600; }
+.month-more { color: var(--text-muted); font-size: 11px; }
+.month-dots { display: none; gap: 3px; }
+.kind-run { color: #3a86ff; }
+.kind-interval { color: #2a9d8f; }
+.kind-last-ok { color: #74c59a; }
+.kind-last-failed, .kind-overdue { color: #ef6f6c; }
+.month-legend .kind-run, .month-dots .kind-run { background: #3a86ff; }
+.month-legend .kind-interval, .month-dots .kind-interval { background: #2a9d8f; }
+.month-legend .kind-last-ok, .month-dots .kind-last-ok { background: #74c59a; }
+.month-legend .kind-last-failed, .month-dots .kind-last-failed, .month-dots .kind-overdue { background: #ef6f6c; }
+.month-entry.kind-run { background: color-mix(in srgb, #3a86ff 14%, transparent); }
+.month-entry.kind-interval { background: color-mix(in srgb, #2a9d8f 14%, transparent); }
+.month-entry.kind-last-ok { background: color-mix(in srgb, #74c59a 14%, transparent); }
+.month-entry.kind-last-failed, .month-entry.kind-overdue { background: color-mix(in srgb, #ef6f6c 14%, transparent); }
+.month-day-detail { border-top: 1px solid var(--border); padding-top: 10px; }
+.month-day-detail ul { display: grid; gap: 6px; list-style: none; margin: 6px 0 8px; padding: 0; }
+.badge.kind-run, .badge.kind-interval, .badge.kind-last-ok, .badge.kind-last-failed, .badge.kind-overdue { background: color-mix(in srgb, currentColor 16%, transparent); }
+@media (max-width: 700px) {
+  .office-overlay { left: 6px; right: 6px; top: 92px; bottom: 6px; }
+  .month-cell { min-height: 46px; padding: 4px; }
+  .month-entry, .month-more { display: none; }
+  .month-dots { display: flex; }
+  .month-legend { margin-left: 0; }
+}
+.month-day-detail strong { font-size: 14px; }

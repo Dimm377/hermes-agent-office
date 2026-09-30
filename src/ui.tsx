@@ -47,7 +47,7 @@ export function Dialog({ labelledBy, onClose, closeLabel, className = '', childr
   const dialogRef = useRef<HTMLElement>(null)
   useEffect(() => { closeRef.current?.focus() }, [])
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key === 'Escape') { onClose(); return }
+    if (event.key === 'Escape') { event.stopPropagation(); onClose(); return }
     if (event.key !== 'Tab') return
     const focusable = dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
     if (!focusable?.length) { event.preventDefault(); return }

@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { BAKSO_CART, BUILDING, COFFEE_TABLE, DESKS, FLAG, KOPI_BIKE, MEETING_TABLE, SOFA, SPARE_DESKS, STALL_ROTATION, TV, type Vec3 } from '../office3d-layout.ts'
-import { AcOutdoorUnit, AirConditioner, CompanySign, Armchair, Bookshelf, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, PantryCounter, PendantLamp, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock, WorkDesk } from './props.tsx'
+import { ARCADES, BAKSO_CART, BEANBAGS, BUILDING, CARROM, COFFEE_TABLE, DESKS, FLAG, GAME_DOOR, GAME_ROOM, GAME_TV, KOPI_BIKE, LOUNGE_PARTITION_END_Z, MEETING_TABLE, PARTITION_X, PING_PONG, SOFA, SPARE_DESKS, STALL_ROTATION, TV, type Vec3 } from '../office3d-layout.ts'
+import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, Beanbag, Bookshelf, CarromTable, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, OfficeLight, PantryCounter, PingPongTable, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock, WorkDesk } from './props.tsx'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
 // The building (floors, walls, windows, furniture) and its surroundings (yard, sidewalk,
@@ -38,6 +38,35 @@ function Window({ position, width = 1.8, night }: { position: Vec3; width?: numb
   </group>
 }
 
+/** A glass pane along x = const, from `bottom` up to near the top of the walls. */
+function Glass({ x, fromZ, toZ, bottom }: { x: number; fromZ: number; toZ: number; bottom: number }) {
+  const top = WALL_HEIGHT - 0.2
+  return <RBox position={[x, (bottom + top) / 2, (fromZ + toZ) / 2]} size={[0.05, top - bottom, Math.abs(toZ - fromZ)]} radius={0.01} color="#cfe8ee" opacity={0.25} roughness={0.05} shadow={false}/>
+}
+
+/** The game room wing: ping-pong, arcade machines, a console corner and a karambol board. */
+function GameRoom({ night }: { night: boolean }) {
+  const { minX, maxX, minZ, maxZ } = GAME_ROOM
+  const floor = useMemo(() => carpet('#3b4170', [3, 3]), [])
+  return <group>
+    <Floor position={[(minX + maxX) / 2, 0.006, (minZ + maxZ) / 2]} size={[maxX - minX, maxZ - minZ]} map={floor} roughness={0.9}/>
+    <Wall from={[minX, minZ]} to={[maxX, minZ]}/>
+    <Wall from={[maxX, minZ]} to={[maxX, maxZ]}/>
+    <Wall from={[minX, maxZ]} to={[maxX, maxZ]} height={0.55}/>
+    <group rotation={[0, -Math.PI / 2, 0]} position={[maxX - 0.14, 1.55, -2.2]}><Window position={[0, 0, 0]} width={1.6} night={night}/></group>
+    <PingPongTable position={PING_PONG}/>
+    {ARCADES.map((position, index) => <ArcadeCabinet key={index} position={position} color={index === 0 ? '#c62828' : '#1d4ed8'}/>)}
+    <RBox position={[GAME_TV[0], 0.25, GAME_TV[2] + 0.2]} size={[1.8, 0.5, 0.4]} radius={0.03} color="#1f2328"/>
+    <RBox position={[GAME_TV[0] - 0.3, 0.55, GAME_TV[2] + 0.2]} size={[0.36, 0.08, 0.26]} radius={0.02} color="#f2f2f2"/>
+    <Television position={[GAME_TV[0], 1.35, GAME_TV[2] + 0.02]}/>
+    {BEANBAGS.map((position, index) => <Beanbag key={index} position={position} color={index === 0 ? '#e76f51' : '#2a9d8f'}/>)}
+    <CarromTable position={CARROM}/>
+    <Plant position={[maxX - 0.5, 0, maxZ - 0.5]} size={0.9}/>
+    <AirConditioner position={[(minX + maxX) / 2 - 0.6, 2.3, minZ + 0.125]}/>
+    {[[PING_PONG[0], 2.4, PING_PONG[2]], [ARCADES[0][0] + 0.5, 2.4, -3.6], [GAME_TV[0], 2.4, -3.6]].map((position) => <OfficeLight key={position.join(',')} position={position as Vec3} night={night}/>)}
+  </group>
+}
+
 function Building({ night }: { night: boolean }) {
   const { minX, maxX, minZ, maxZ } = BUILDING
   const wood = useMemo(() => woodFloor([4, 4]), [])
@@ -53,7 +82,14 @@ function Building({ night }: { night: boolean }) {
     {/* Full-height back and left walls, low walls towards the camera */}
     <Wall from={[minX, minZ]} to={[maxX, minZ]}/>
     <Wall from={[minX, minZ]} to={[minX, maxZ]}/>
-    <Wall from={[maxX, minZ]} to={[maxX, maxZ]} height={1.1}/>
+    {/* Right wall: the lounge side opens into the game room through a door, glass above */}
+    <Wall from={[maxX, minZ]} to={[maxX, GAME_DOOR.fromZ]} height={1.1}/>
+    <Wall from={[maxX, GAME_DOOR.toZ]} to={[maxX, maxZ]} height={1.1}/>
+    <Glass x={maxX} fromZ={minZ} toZ={GAME_DOOR.fromZ} bottom={1.1}/>
+    <Glass x={maxX} fromZ={GAME_DOOR.toZ} toZ={GAME_ROOM.maxZ} bottom={1.1}/>
+    {/* Glass partition that makes the lounge its own room */}
+    <Wall from={[PARTITION_X, minZ]} to={[PARTITION_X, LOUNGE_PARTITION_END_Z]} height={0.9}/>
+    <Glass x={PARTITION_X} fromZ={minZ} toZ={LOUNGE_PARTITION_END_Z} bottom={0.9}/>
     <Wall from={[minX, maxZ]} to={[4.9, maxZ]} height={0.55}/>
     <Wall from={[6.7, maxZ]} to={[maxX, maxZ]} height={0.55}/>
     {/* Glass-topped half wall around the meeting area and a planter row by the lounge */}
@@ -72,8 +108,9 @@ function Building({ night }: { night: boolean }) {
     <WallClock position={[-3.6, 2.35, minZ + 0.14]}/>
     {/* Lounge */}
     <Sofa position={SOFA} rotation={Math.PI}/>
-    <Armchair position={[2.1, 0, -1.9]} rotation={Math.PI / 2} color="#d9784a"/>
-    <Armchair position={[7.1, 0, -1.9]} rotation={-Math.PI / 2} color="#3d7fd6"/>
+    {/* Armchairs sit exactly behind the lounge seats agents use (LOUNGE_SEATS 2 and 3) */}
+    <Armchair position={[2.1, 0, -2.9]} rotation={Math.PI / 2} color="#d9784a"/>
+    <Armchair position={[7.1, 0, -2.9]} rotation={-Math.PI / 2} color="#3d7fd6"/>
     <CoffeeTable position={COFFEE_TABLE}/>
     <RBox position={[TV[0], 0.3, TV[2]]} size={[1.8, 0.6, 0.45]} radius={0.03} color="#6b4a32"/>
     <Television position={[TV[0], 1.35, minZ + 0.17]}/>
@@ -82,14 +119,13 @@ function Building({ night }: { night: boolean }) {
     <GalonDispenser position={[maxX - 0.45, 0, -0.4]} rotation={-Math.PI / 2}/>
     <Fridge position={[maxX - 0.5, 0, 0.6]} rotation={-Math.PI / 2}/>
     <PantryCounter position={[maxX - 0.45, 0, 2.6]} rotation={-Math.PI / 2}/>
-    {/* The Ruang sign on the roof, above the back wall */}
-    <CompanySign position={[2.4, WALL_HEIGHT, minZ]} night={night}/>
     {/* Split ACs high on the walls */}
     <AirConditioner position={[-5.3, 2.3, minZ + 0.125]}/>
     <AirConditioner position={[TV[0], 2.3, minZ + 0.125]}/>
     <AirConditioner position={[minX + 0.125, 2.3, 2.6]} rotation={Math.PI / 2}/>
-    {/* Pendant lamps: off by day, warm light in the evening */}
-    {[...DESKS.map(([x, , z]): Vec3 => [x, 2.45, z + 0.2]), ...SPARE_DESKS.map(([x, , z]): Vec3 => [x, 2.45, z]), [MEETING_TABLE[0], 2.3, MEETING_TABLE[2]] as Vec3, [COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2]] as Vec3, [8.2, 2.4, 1.2] as Vec3].map((position) => <PendantLamp key={position.join(',')} position={position} night={night}/>)}
+    {/* Office lights: suspended cool-white LED bars */}
+    {[...DESKS.map(([x, , z]): Vec3 => [x, 2.4, z + 0.2]), ...SPARE_DESKS.map(([x, , z]): Vec3 => [x, 2.4, z]), [MEETING_TABLE[0], 2.3, MEETING_TABLE[2]] as Vec3, [COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2] + 0.4] as Vec3, [8.2, 2.4, 1.2] as Vec3].map((position) => <OfficeLight key={position.join(',')} position={position} night={night}/>)}
+    <GameRoom night={night}/>
   </group>
 }
 
@@ -121,7 +157,7 @@ function Outdoors({ night }: { night: boolean }) {
     <AcOutdoorUnit position={[TV[0] - 1.6, 0, BUILDING.minZ - 0.45]} rotation={Math.PI}/>
     <StreetLamp position={[-8, 0, 9.3]} night={night}/>
     <StreetLamp position={[4, 0, 9.3]} night={night}/>
-    {[[-12.8, -7.4, 1.3], [12.5, -6.5, 1.2], [-14.8, 2.6, 1.1], [13, 3, 1.3], [-10.5, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].map(([x, z, size]) => <Tree key={`${x}${z}`} position={[x, 0, z]} size={size}/>)}
+    {[[-12.8, -7.4, 1.3], [13.5, -7.2, 1.2], [-14.8, 2.6, 1.1], [18.6, 4.8, 1.3], [-10.5, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].map(([x, z, size]) => <Tree key={`${x}${z}`} position={[x, 0, z]} size={size}/>)}
   </group>
 }
 

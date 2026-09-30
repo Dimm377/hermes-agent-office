@@ -56,7 +56,7 @@ function FileViewer({ agent, path }: { agent: string; path: string }) {
   </section>
 }
 
-function Browser({ agent, onBack }: { agent: FolderAgent; onBack: () => void }) {
+function Browser({ agent, onBack }: { agent: FolderAgent; onBack?: () => void }) {
   const [directory, setDirectory] = useState('')
   const [selected, setSelected] = useState<string | undefined>()
   const [query, setQuery] = useState('')
@@ -67,7 +67,7 @@ function Browser({ agent, onBack }: { agent: FolderAgent; onBack: () => void }) 
   const entries = listing.status === 'ready' ? listing.data.entries.filter((entry) => !needle || entry.name.toLowerCase().includes(needle)) : []
   return <>
     <nav className="breadcrumb" aria-label="Folder path">
-      <button type="button" onClick={onBack}>All agents</button><span>/</span>
+      {onBack && <><button type="button" onClick={onBack}>All agents</button><span>/</span></>}
       <button type="button" onClick={() => open('')} aria-current={!directory ? 'page' : undefined} title={agent.path}>{agent.label} <small>{agent.path}</small></button>
       {parts.map((part, index) => <span key={index} className="crumb"><span>/</span><button type="button" onClick={() => open(parts.slice(0, index + 1).join('/'))} aria-current={index === parts.length - 1 ? 'page' : undefined}>{part}</button></span>)}
       <button type="button" className="refresh-button crumb-refresh" onClick={listing.reload}>↻ REFRESH</button>
@@ -92,6 +92,16 @@ function Browser({ agent, onBack }: { agent: FolderAgent; onBack: () => void }) 
       <div className="file-view-pane">{selected ? <FileViewer agent={agent.profile} path={selected}/> : <EmptyState title="Select a file">Pick a file on the left to view it. Folders open in place.</EmptyState>}</div>
     </section>
   </>
+}
+
+/** One agent's folder browser, for the Office agent dialog. */
+export function AgentFolder({ profile }: { profile: string }) {
+  const snapshot = usePolling<FolderAgentsSnapshot>('/api/folders', 60_000)
+  const agent = snapshot.status === 'ready' ? snapshot.data.agents.find((item) => item.profile === profile) : undefined
+  if (snapshot.status === 'pending') return <LoadingState message="Finding the agent folder..."/>
+  if (snapshot.status === 'failed') return <EmptyState title="Not Available">{snapshot.message ?? 'The folder list could not be read.'}</EmptyState>
+  if (!agent || !agent.available) return <EmptyState title="Folder not available">{agent?.reason ?? 'This agent has no readable folder.'}</EmptyState>
+  return <div className="embedded-folder">{agent.warning && <p className="file-notice">⚠ {agent.warning}</p>}<Browser key={agent.profile} agent={agent}/></div>
 }
 
 export function Folders() {

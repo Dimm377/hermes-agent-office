@@ -27,17 +27,21 @@ describe('Office detail dialog focus', () => {
     const trigger = document.querySelector<HTMLButtonElement>('[aria-label^="Lead Agent"]')!
     await act(async () => { trigger.click() })
     const close = document.querySelector<HTMLButtonElement>('.office-close')!
-    close.focus()
+    const tabs = [...document.querySelectorAll<HTMLButtonElement>('.detail-tabs button')]
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Overview', 'Folder', 'Memory'])
+    const last = tabs[tabs.length - 1]
+    // Tab from the last control wraps to the first (Close); Shift+Tab from Close wraps back.
+    last.focus()
     const tab = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
-    await act(async () => { close.dispatchEvent(tab) })
-
+    await act(async () => { last.dispatchEvent(tab) })
     expect(tab.defaultPrevented).toBe(true)
     expect(document.activeElement).toBe(close)
 
     const shiftTab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
     await act(async () => { close.dispatchEvent(shiftTab) })
     expect(shiftTab.defaultPrevented).toBe(true)
-    expect(document.activeElement).toBe(close)
+    expect(document.activeElement).toBe(last)
+    close.focus()
 
     await act(async () => { close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
     expect(document.activeElement).toBe(trigger)

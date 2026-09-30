@@ -73,6 +73,16 @@ function AgentPanel({ agent, onOpenFolders }: { agent: AgentMemory; onOpenFolder
   </div>
 }
 
+/** One agent's memory (SOUL.md, MEMORY.md, USER.md, context files), for the Office agent dialog. */
+export function AgentMemoryView({ profile }: { profile: string }) {
+  const snapshot = usePolling<MemorySnapshot>('/api/memory', 30_000)
+  const agent = snapshot.status === 'ready' ? snapshot.data.agents.find((item) => item.profile === profile) : undefined
+  if (snapshot.status === 'pending') return <LoadingState message="Reading agent memory..."/>
+  if (snapshot.status === 'failed') return <EmptyState title="Not Available">{snapshot.message ?? 'Memory could not be read.'}</EmptyState>
+  if (!agent) return <EmptyState title="Not available">No memory was found for this agent.</EmptyState>
+  return <AgentPanel key={agent.profile} agent={agent}/>
+}
+
 export function Memory({ onOpenFolders }: { onOpenFolders?: () => void }) {
   const snapshot = usePolling<MemorySnapshot>('/api/memory', 30_000)
   const data = snapshot.status === 'ready' ? snapshot.data : undefined

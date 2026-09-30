@@ -5,7 +5,11 @@ import { formatDateTime } from '../format.ts'
 import type { Page } from '../routes.ts'
 import type { ActivitySnapshot, ChannelSnapshot, DashboardSnapshot, OfficeRoom, OfficeSnapshot, OfficeStation } from '../types.ts'
 import { LoadingState, SourceStatus } from '../ui.tsx'
+import { CalendarOverlayView } from './Calendar.tsx'
+import { AgentFolder } from './Folders.tsx'
+import { AgentMemoryView } from './Memory.tsx'
 import { Stats } from './Stats.tsx'
+import { TaskBoard } from './TaskBoard.tsx'
 
 // The 3D view (three.js) is only downloaded when someone switches to it.
 const Office3D = lazy(() => import('./Office3D.tsx'))
@@ -51,13 +55,20 @@ function officeStateLabel(station: OfficeStation): string {
   return station.state === 'Idle' ? 'Idle · managed placement' : station.state
 }
 
+/** The Hermes profile (folder and memory owner) behind each station's avatar. */
+const PROFILE_BY_AVATAR: Record<string, string> = { 'lead-agent': 'default', 'lead-engineer': 'leadengineer', opencode: 'opencode' }
+type DetailTab = 'Overview' | 'Folder' | 'Memory'
+const DETAIL_TABS: DetailTab[] = ['Overview', 'Folder', 'Memory']
+
 export function OfficeDetail({ station, onClose }: { station: OfficeStation; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
+  const [tab, setTab] = useState<DetailTab>('Overview')
   useEffect(() => { closeRef.current?.focus() }, [])
   const badge = officeStateBadge(station.state)
+  const profile = PROFILE_BY_AVATAR[station.avatar]
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key === 'Escape') { onClose(); return }
+    if (event.key === 'Escape') { event.stopPropagation(); onClose(); return }
     if (event.key !== 'Tab') return
     const focusable = dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
     if (!focusable?.length) { event.preventDefault(); return }
@@ -70,12 +81,36 @@ export function OfficeDetail({ station, onClose }: { station: OfficeStation; onC
     }
   }
   return <div className="office-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-    <section className="office-detail" ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="office-detail-title" onKeyDown={onKeyDown}>
+    <section className={`office-detail${tab === 'Overview' ? '' : ' wide'}`} ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="office-detail-title" onKeyDown={onKeyDown}>
       <button className="office-close" ref={closeRef} onClick={onClose} aria-label={`Close ${station.name} details`}>Close</button>
-      <div className="detail-avatar"><PixelCharacter avatar={station.avatar}/></div><p className="eyebrow">STATION DETAIL</p><h2 id="office-detail-title">{station.name}</h2><span className={`badge ${badge.tone}`}>{officeStateLabel(station)}</span>{station.activity && <p className="detail-activity">{station.activity}</p>}
-      <dl className="office-detail-grid"><div><dt>Declared role</dt><dd>{station.role}</dd></div><div><dt>Workstation</dt><dd>{station.workstation}</dd></div><div><dt>Current room</dt><dd>{station.room} / {station.roomPosition}</dd></div><div><dt>Current task</dt><dd>{station.currentTask}</dd></div><div><dt>Recent activity</dt><dd>{station.recentActivity}</dd></div><div><dt>Source / provenance</dt><dd>{station.provenance}</dd></div><div><dt>Freshness</dt><dd>{station.freshness}</dd></div></dl>
+      <div className="detail-head"><div className="detail-avatar"><PixelCharacter avatar={station.avatar}/></div><div><p className="eyebrow">STATION DETAIL</p><h2 id="office-detail-title">{station.name}</h2><span className={`badge ${badge.tone}`}>{officeStateLabel(station)}</span></div></div>
+      {profile && <div className="detail-tabs" role="tablist" aria-label={`${station.name} details`}>{DETAIL_TABS.map((item) => <button type="button" role="tab" key={item} aria-selected={tab === item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>}
+      <div role="tabpanel" aria-label={tab} className="detail-body">
+        {tab === 'Overview' && <>{station.activity && <p className="detail-activity">{station.activity}</p>}
+          <dl className="office-detail-grid"><div><dt>Declared role</dt><dd>{station.role}</dd></div><div><dt>Workstation</dt><dd>{station.workstation}</dd></div><div><dt>Current room</dt><dd>{station.room} / {station.roomPosition}</dd></div><div><dt>Current task</dt><dd>{station.currentTask}</dd></div><div><dt>Recent activity</dt><dd>{station.recentActivity}</dd></div><div><dt>Source / provenance</dt><dd>{station.provenance}</dd></div><div><dt>Freshness</dt><dd>{station.freshness}</dd></div></dl></>}
+        {tab === 'Folder' && profile && <AgentFolder profile={profile}/>}
+        {tab === 'Memory' && profile && <AgentMemoryView profile={profile}/>}
+      </div>
     </section>
   </div>
+}
+
+type OverlayKind = 'tasks' | 'calendar'
+const OVERLAYS: Record<OverlayKind, { title: string; page: Page }> = { tasks: { title: 'Task Board', page: 'Task Board' }, calendar: { title: 'Calendar', page: 'Calendar' } }
+
+/** Task Board or the cron calendar shown over the office, without leaving it. */
+function OfficeOverlay({ kind, onClose, onNavigate }: { kind: OverlayKind; onClose: () => void; onNavigate?: (page: Page) => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => { closeRef.current?.focus() }, [kind])
+  const { title, page } = OVERLAYS[kind]
+  return <section className={`office-overlay overlay-${kind}`} role="dialog" aria-modal="false" aria-labelledby="office-overlay-title" onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
+    <header className="office-overlay-head">
+      <h2 id="office-overlay-title">{title}</h2>
+      {onNavigate && <button type="button" className="refresh-button" onClick={() => onNavigate(page)}>Open full page ↗</button>}
+      <button type="button" ref={closeRef} className="icon-button" onClick={onClose} aria-label={`Close ${title}`}>✕</button>
+    </header>
+    <div className="office-overlay-body">{kind === 'tasks' ? <TaskBoard/> : <CalendarOverlayView/>}</div>
+  </section>
 }
 
 interface HudItem { label: string; value: string; tone?: 'warn' | 'bad'; page?: Page; title?: string }
@@ -112,6 +147,7 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
   const [view, setView] = useState<OfficeView>(() => typeof window === 'undefined' ? '2d' : storedView())
   const [webgl] = useState(() => typeof document === 'undefined' || webglAvailable())
   const [panel, setPanel] = useState<PanelTab | undefined>(() => typeof window === 'undefined' ? undefined : storedPanel())
+  const [overlay, setOverlay] = useState<OverlayKind | undefined>()
   const choosePanel = (next: PanelTab | undefined) => {
     setPanel(next)
     try { window.localStorage.setItem('mc.officePanel', next ?? 'closed') } catch { /* storage may be blocked */ }
@@ -141,7 +177,8 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
     <div className="office-hud" role="list" aria-label="Key statistics">{hud.map((item) => { const body = <><span>{item.label}</span><b>{item.value}</b></>; return <div role="listitem" key={item.label}>{item.page && onNavigate ? <button type="button" className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title ?? `Open ${item.page}`} onClick={() => onNavigate(item.page!)}>{body}</button> : <span className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title}>{body}</span>}</div> })}</div>
     <div className="office-stage-tools">
       <div className="view-toggle" role="group" aria-label="Office view">{(['2d', '3d'] as const).map((item) => <button type="button" key={item} className={view === item ? 'active' : ''} aria-pressed={view === item} onClick={() => chooseView(item)} disabled={item === '3d' && !webgl} title={item === '3d' && !webgl ? 'WebGL is not available in this browser' : undefined}>{item.toUpperCase()}</button>)}</div>
-      <button type="button" className={`panel-toggle${panel ? ' active' : ''}`} aria-expanded={Boolean(panel)} aria-controls="office-panel" onClick={() => choosePanel(panel ? undefined : 'Crew')}>▤ Panel</button>
+      {(['tasks', 'calendar'] as const).map((item) => <button type="button" key={item} className={`panel-toggle${overlay === item ? ' active' : ''}`} aria-pressed={overlay === item} onClick={() => setOverlay(overlay === item ? undefined : item)}>{item === 'tasks' ? '▦ Tasks' : '◷ Calendar'}</button>)}
+      <button type="button" className={`panel-toggle${panel ? ' active' : ''}`} aria-expanded={Boolean(panel)} aria-controls="office-panel" onClick={() => choosePanel(panel ? undefined : 'Crew')}>◧ Panel</button>
     </div>
     <div className="office-canvas">
       {show3d ? <SceneBoundary fallback={<section className="empty-state"><h2>3D view unavailable</h2><p>The 3D office could not start on this device. Switch back to 2D.</p></section>}><Suspense fallback={<LoadingState message="Loading the 3D office..."/>}><Office3D stations={office?.stations ?? []} onSelect={select3d}/></Suspense></SceneBoundary> : <>{view === '3d' && !webgl && <p className="muted office-note">3D needs WebGL, which this browser does not provide. Showing 2D.</p>}<div className="room-tabs" role="tablist" aria-label="Office rooms">{ROOMS.map((item) => <button role="tab" aria-selected={room === item} className={room === item ? 'active' : ''} onClick={() => setChosenRoom(item)} key={item}>{item} <span className="room-count">{counts[item]}</span></button>)}</div>
@@ -171,6 +208,7 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
         </>}
       </div>
     </aside>}
+    {overlay && <OfficeOverlay kind={overlay} onClose={() => setOverlay(undefined)} onNavigate={onNavigate}/>}
     {selected && <OfficeDetail station={selected} onClose={closeDetail}/>}
   </section>
 }

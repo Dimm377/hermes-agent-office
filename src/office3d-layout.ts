@@ -15,8 +15,19 @@ export type Vec3 = [number, number, number]
 
 export const FLOOR_Y = 0
 export const BUILDING = { minX: -9.5, maxX: 9.5, minZ: -5.2, maxZ: 4.2 }
-/** Wall between the workspace and the lounge. */
+/** Glass wall between the workspace and the lounge (back part, up to LOUNGE_PARTITION_END_Z). */
 export const PARTITION_X = 0.4
+export const LOUNGE_PARTITION_END_Z = -0.5
+/** Game room wing right of the building, entered through a door in the lounge wall. */
+export const GAME_ROOM = { minX: 9.5, maxX: 15.5, minZ: -5.2, maxZ: 0.6 }
+/** Walking line from the lounge lane through the game room door, and the door's extent. */
+export const GAME_LANE_Z = -3.7
+export const GAME_DOOR = { fromZ: -4.4, toZ: -3.0 }
+export const PING_PONG: Vec3 = [12.6, 0, -1.4]
+export const ARCADES: Vec3[] = [[10.6, 0, -4.75], [11.6, 0, -4.75]]
+export const GAME_TV: Vec3 = [14.2, 0, -5.05]
+export const BEANBAGS: Vec3[] = [[13.7, 0, -4.35], [14.7, 0, -4.35]]
+export const CARROM: Vec3 = [10.6, 0, -0.1]
 
 /** Each agent's own desk (seat 1..3) along the back of the workspace. */
 export const DESKS: Vec3[] = [[-7.2, 0, -3.5], [-4.6, 0, -3.5], [-2, 0, -3.5]]
@@ -43,12 +54,13 @@ export const LOUNGE_LANE_X = 3.1
 export const BAKSO_CART: Vec3 = [-11.9, 0, -2.3]
 export const KOPI_BIKE: Vec3 = [-11.9, 0, 1.6]
 export const STALL_ROTATION = Math.PI / 2
-export const FLAG: Vec3 = [8.4, 0, 5.6]
+/** The flag stands at the front-right corner of the grounds, clear of the rooms in view. */
+export const FLAG: Vec3 = [16.4, 0, 2.6]
 
-export const CAMERA_TARGET: Vec3 = [-1.9, 0.6, 0.4]
-export const CAMERA_OFFSET: Vec3 = [-3.4, 13.4, 16.6]
+export const CAMERA_TARGET: Vec3 = [1, 0.6, 0.2]
+export const CAMERA_OFFSET: Vec3 = [-3.9, 15.2, 18.8]
 /** How far the view may be panned (camera target bounds), so the office never leaves the screen. */
-export const PAN_BOUNDS = { minX: -12, maxX: 12, minZ: -7, maxZ: 11 }
+export const PAN_BOUNDS = { minX: -13, maxX: 17, minZ: -7, maxZ: 11 }
 
 export const PALETTE: Record<string, { hair: string; shirt: string; pants: string }> = {
   'lead-agent': { hair: '#b54b45', shirt: '#e6b34e', pants: '#36475d' },
@@ -57,7 +69,7 @@ export const PALETTE: Record<string, { hair: string; shirt: string; pants: strin
 }
 export const SKIN = '#e9b57d'
 
-export interface Placement { position: Vec3; facing: number; seated: boolean }
+export interface Placement { position: Vec3; facing: number; seated: boolean; label?: string }
 
 /** Where a station stands in the 3D office, from the same fields the 2D view uses. */
 export function placementFor(station: OfficeStation): Placement {
@@ -75,7 +87,8 @@ export function placementFor(station: OfficeStation): Placement {
   return { position: [x, y, z - 0.75], facing: 0, seated: station.state === 'Working' || station.state === 'Reviewing' }
 }
 
-const outside = ([x, z]: [number, number]) => z > BUILDING.maxZ || x < BUILDING.minX || x > BUILDING.maxX
+const inGameRoom = ([x, z]: [number, number]) => x > BUILDING.maxX && x < GAME_ROOM.maxX && z > GAME_ROOM.minZ && z < GAME_ROOM.maxZ
+const outside = (point: [number, number]) => point[1] > BUILDING.maxZ || point[0] < BUILDING.minX || (point[0] > BUILDING.maxX && !inGameRoom(point))
 const inGang = ([x]: [number, number]) => x < BUILDING.minX
 const inLounge = ([x, z]: [number, number]) => x > 1.5 && x < 7.8 && z < -0.6
 
@@ -88,7 +101,8 @@ const inLounge = ([x, z]: [number, number]) => x > 1.5 && x < 7.8 && z < -0.6
 export function walkPath(from: [number, number], to: [number, number]): [number, number][] {
   if (Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.3) return [to]
   const route: [number, number][] = [from]
-  const toAisle = (point: [number, number]): [number, number][] => inLounge(point) ? [[LOUNGE_LANE_X, point[1]], [LOUNGE_LANE_X, AISLE_Z]] : [[point[0], AISLE_Z]]
+  const toAisle = (point: [number, number]): [number, number][] => inGameRoom(point) ? [[point[0], GAME_LANE_Z], [LOUNGE_LANE_X, GAME_LANE_Z], [LOUNGE_LANE_X, AISLE_Z]]
+    : inLounge(point) ? [[LOUNGE_LANE_X, point[1]], [LOUNGE_LANE_X, AISLE_Z]] : [[point[0], AISLE_Z]]
   const toSidewalk = (point: [number, number]): [number, number][] => inGang(point) ? [[SIDE_LANE_X, point[1]], [SIDE_LANE_X, SIDEWALK_Z]] : [[point[0], SIDEWALK_Z]]
   if (!outside(from) && !outside(to)) {
     route.push(...toAisle(from), ...toAisle(to).reverse())
@@ -102,18 +116,25 @@ export function walkPath(from: [number, number], to: [number, number]): [number,
     route.push(...toSidewalk(from), [ENTRANCE_X, SIDEWALK_Z], [ENTRANCE_X, AISLE_Z], ...toAisle(to).reverse())
   }
   route.push(to)
-  // Drop the start and any waypoint that does not move the agent somewhere new.
-  const path: [number, number][] = []
-  let last = from
+  // Drop waypoints that do not move the agent somewhere new, then any middle point of three on
+  // one straight line (so going out to the aisle and straight back becomes one straight walk).
+  const points: [number, number][] = [from]
   for (const point of route.slice(1)) {
-    if (Math.hypot(point[0] - last[0], point[1] - last[1]) > 0.2) { path.push(point); last = point }
+    const last = points[points.length - 1]
+    if (Math.hypot(point[0] - last[0], point[1] - last[1]) > 0.2) points.push(point)
   }
+  const aligned = (a: [number, number], b: [number, number], c: [number, number]) => (Math.abs(a[0] - b[0]) < 0.01 && Math.abs(b[0] - c[0]) < 0.01) || (Math.abs(a[1] - b[1]) < 0.01 && Math.abs(b[1] - c[1]) < 0.01)
+  for (let index = 1; index < points.length - 1;) {
+    if (aligned(points[index - 1], points[index], points[index + 1])) points.splice(index, 1)
+    else index += 1
+  }
+  const path = points.slice(1)
   if (path.length === 0 || path[path.length - 1] !== to) path.push(to)
   return path
 }
 
 export interface IdleStop { key: string; label: string; spots: Placement[] }
-const spot = (x: number, z: number, facing: number, seated = false): Placement => ({ position: [x, 0, z], facing, seated })
+const spot = (x: number, z: number, facing: number, seated = false, label?: string): Placement => ({ position: [x, 0, z], facing, seated, ...(label ? { label } : {}) })
 /** A spot given in a stall's own coordinates (as if unrotated), placed in the world. */
 function stallSpot(stall: Vec3, x: number, z: number, facing: number, seated = false): Placement {
   const cos = Math.cos(STALL_ROTATION)
@@ -132,11 +153,13 @@ export const IDLE_STOPS: IdleStop[] = [
   { key: 'bakso', label: 'Eating bakso', spots: [stallSpot(BAKSO_CART, 0.5, 1.1, Math.PI, true), stallSpot(BAKSO_CART, -0.3, 1.2, Math.PI, true), stallSpot(BAKSO_CART, 1.3, 0.9, -2.4)] },
   { key: 'dapur', label: 'In the kitchen', spots: [spot(8.25, 2.6, Math.PI / 2), spot(8.3, 0.65, Math.PI / 2), spot(8.25, 3.3, Math.PI / 2)] },
   { key: 'kopi', label: 'Coffee at the kopi bike', spots: [stallSpot(KOPI_BIKE, -0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 1.45, 0.3, -Math.PI / 2)] },
+  { key: 'game', label: 'Playing ping-pong', spots: [spot(PING_PONG[0] - 1.75, PING_PONG[2], Math.PI / 2), spot(PING_PONG[0] + 1.75, PING_PONG[2], -Math.PI / 2), spot(BEANBAGS[0][0], BEANBAGS[0][2], Math.PI, true, 'Gaming on the console')] },
+  { key: 'arcade', label: 'Playing arcade games', spots: [spot(ARCADES[0][0], ARCADES[0][2] + 0.8, Math.PI), spot(ARCADES[1][0], ARCADES[1][2] + 0.8, Math.PI), spot(BEANBAGS[1][0], BEANBAGS[1][2], Math.PI, true, 'Gaming on the console')] },
   { key: 'jalan', label: 'Taking a stroll', spots: [spot(FLAG[0] - 0.8, FLAG[2] + 0.3, Math.PI / 2), spot(BUILDING.minX + 0.95, -0.9, -Math.PI / 2), spot(1.3, -4.4, Math.PI)] },
 ]
 /** How long an idle agent stays at one stop (walking included). */
 export const IDLE_STOP_MS = 32_000
-const IDLE_ROUTE = ['lounge', 'galon', 'lounge', 'bakso', 'jalan', 'lounge', 'kopi', 'dapur']
+export const IDLE_ROUTE = ['lounge', 'galon', 'game', 'bakso', 'jalan', 'arcade', 'kopi', 'dapur', 'game', 'lounge']
 
 /**
  * The stop an idle agent is at, at a given time. Purely decorative and deterministic: it depends

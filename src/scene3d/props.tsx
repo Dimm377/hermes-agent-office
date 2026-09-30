@@ -3,7 +3,7 @@ import { useMemo, useRef, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import type { Vec3 } from '../office3d-layout.ts'
-import { companySign, merahPutih, screenTexture, signTexture } from './textures.ts'
+import { arcadeScreen, merahPutih, screenTexture, signTexture } from './textures.ts'
 
 // Low-poly props built from primitives. Rounded edges and PBR materials keep them from
 // looking flat; everything is procedural, so no model files are shipped.
@@ -360,17 +360,17 @@ export function StreetLamp({ position, night = false }: { position: Vec3; night?
 // ---------------------------------------------------------------------------
 // Lighting and climate
 
-/** Pendant lamp; switched on (with a warm point light) in the evening. */
-export function PendantLamp({ position, night }: { position: Vec3; night: boolean }) {
-  return <group position={position}>
-    <Cyl position={[0, 0.35, 0]} radius={0.008} height={0.7} color="#2a2f33"/>
-    <mesh position={[0, 0, 0]} castShadow={false}>
-      <coneGeometry args={[0.3, 0.22, 20, 1, true]}/>
-      <meshStandardMaterial color="#2f3a44" side={THREE.DoubleSide} roughness={0.5} metalness={0.3}/>
+/** Suspended linear LED fixture, the usual office light: cool white, brighter in the evening. */
+export function OfficeLight({ position, rotation = 0, night }: { position: Vec3; rotation?: number; night: boolean }) {
+  return <Group position={position} rotation={rotation}>
+    {[-0.55, 0.55].map((x) => <Cyl key={x} position={[x, 0.3, 0]} radius={0.006} height={0.6} color="#8b9297"/>)}
+    <RBox position={[0, 0, 0]} size={[1.4, 0.06, 0.16]} radius={0.02} color="#d9dde0" metalness={0.4} roughness={0.35} shadow={false}/>
+    <mesh position={[0, -0.032, 0]} rotation={[Math.PI / 2, 0, 0]}>
+      <planeGeometry args={[1.32, 0.11]}/>
+      <meshStandardMaterial color="#ffffff" emissive="#f2f6ff" emissiveIntensity={night ? 2.6 : 0.9} side={THREE.DoubleSide}/>
     </mesh>
-    <mesh position={[0, -0.08, 0]}><sphereGeometry args={[0.09, 12, 8]}/><meshStandardMaterial color="#fff6dc" emissive="#ffd48a" emissiveIntensity={night ? 3 : 0.05}/></mesh>
-    {night && <pointLight position={[0, -0.25, 0]} color="#ffd9a0" intensity={9} distance={7} decay={2}/>}
-  </group>
+    {night && <pointLight position={[0, -0.3, 0]} color="#f1f5ff" intensity={8} distance={7} decay={2}/>}
+  </Group>
 }
 
 /** Wall-mounted split AC with a gently swinging louvre. */
@@ -398,15 +398,50 @@ export function AcOutdoorUnit({ position, rotation = 0 }: { position: Vec3; rota
   </Group>
 }
 
-/** Rooftop Ruang sign on two posts; lit from within in the evening. */
-export function CompanySign({ position, night }: { position: Vec3; night: boolean }) {
-  const texture = useMemo(() => companySign(), [])
+// ---------------------------------------------------------------------------
+// Game room
+
+/** Ping-pong table (along x) with its net. */
+export function PingPongTable({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    <RBox position={[0, 0.74, 0]} size={[2.74, 0.05, 1.52]} radius={0.02} color="#1f5f8b" roughness={0.45}/>
+    <RBox position={[0, 0.768, 0]} size={[2.7, 0.004, 0.03]} radius={0.001} color="#ffffff" shadow={false}/>
+    <RBox position={[0, 0.768, 0]} size={[0.02, 0.004, 1.48]} radius={0.001} color="#ffffff" shadow={false}/>
+    <RBox position={[0, 0.85, 0]} size={[0.02, 0.16, 1.62]} radius={0.004} color="#f4f4f0" opacity={0.75}/>
+    {[[-1.1, -0.6], [1.1, -0.6], [-1.1, 0.6], [1.1, 0.6]].map(([x, z]) => <Cyl key={`${x}${z}`} position={[x, 0.36, z]} radius={0.035} height={0.72} color="#2a2f33"/>)}
+    <mesh position={[0.4, 0.8, 0.3]}><sphereGeometry args={[0.03, 10, 8]}/><meshStandardMaterial color="#ff8a1f"/></mesh>
+    <RBox position={[-0.9, 0.78, -0.35]} size={[0.16, 0.02, 0.15]} radius={0.01} rotation={[0, 0.4, 0]} color="#c62828"/>
+  </Group>
+}
+
+/** Upright arcade cabinet with a glowing screen. */
+export function ArcadeCabinet({ position, color }: { position: Vec3; color: string }) {
+  const screen = useMemo(() => arcadeScreen(), [])
+  return <Group position={position}>
+    <RBox position={[0, 0.85, 0]} size={[0.72, 1.7, 0.62]} radius={0.04} color={color} roughness={0.5}/>
+    <RBox position={[0, 0.95, 0.32]} size={[0.66, 0.06, 0.22]} radius={0.02} color="#1c1f24"/>
+    {[-0.15, 0.05, 0.2].map((x, index) => <mesh key={x} position={[x, 0.99, 0.35]}><sphereGeometry args={[0.03, 8, 6]}/><meshStandardMaterial color={['#e63946', '#f4d35e', '#3a86ff'][index]} emissive={['#e63946', '#f4d35e', '#3a86ff'][index]} emissiveIntensity={0.5}/></mesh>)}
+    <mesh position={[0, 1.35, 0.315]}><planeGeometry args={[0.56, 0.44]}/><meshStandardMaterial map={screen} emissiveMap={screen} emissive="#ffffff" emissiveIntensity={0.9}/></mesh>
+    <RBox position={[0, 1.66, 0.3]} size={[0.66, 0.14, 0.04]} radius={0.01} color="#f4d35e" emissive="#f4d35e" emissiveIntensity={0.6}/>
+  </Group>
+}
+
+export function Beanbag({ position, color }: { position: Vec3; color: string }) {
   return <group position={position}>
-    {[-2.1, 2.1].map((x) => <Cyl key={x} position={[x, 0.35, 0]} radius={0.05} height={0.7} color="#3a3f44" metalness={0.5}/>)}
-    <RBox position={[0, 1.15, -0.04]} size={[5.3, 1.1, 0.1]} radius={0.03} color="#2f3336"/>
-    <mesh position={[0, 1.15, 0.015]}>
-      <planeGeometry args={[5.1, 1]}/>
-      <meshStandardMaterial map={texture} emissiveMap={texture} emissive="#ffffff" emissiveIntensity={night ? 0.85 : 0.08} roughness={0.6}/>
-    </mesh>
+    <mesh position={[0, 0.24, 0]} scale={[1, 0.62, 1]} castShadow receiveShadow><sphereGeometry args={[0.42, 18, 14]}/><meshStandardMaterial color={color} roughness={0.95}/></mesh>
+    <mesh position={[0, 0.36, -0.18]} scale={[1, 0.9, 0.55]} castShadow><sphereGeometry args={[0.36, 16, 12]}/><meshStandardMaterial color={color} roughness={0.95}/></mesh>
   </group>
+}
+
+/** Karambol (carrom) board on a low stand, with two plastic stools. */
+export function CarromTable({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    <RBox position={[0, 0.3, 0]} size={[0.5, 0.6, 0.5]} radius={0.03} color="#6b4a32"/>
+    <RBox position={[0, 0.63, 0]} size={[0.9, 0.06, 0.9]} radius={0.02} color="#5a3a24"/>
+    <RBox position={[0, 0.664, 0]} size={[0.78, 0.01, 0.78]} radius={0.004} color="#e8cf9c" shadow={false}/>
+    {[[-0.36, -0.36], [0.36, -0.36], [-0.36, 0.36], [0.36, 0.36]].map(([x, z]) => <mesh key={`${x}${z}`} position={[x, 0.671, z]} rotation={[-Math.PI / 2, 0, 0]}><circleGeometry args={[0.035, 12]}/><meshStandardMaterial color="#1c1f24"/></mesh>)}
+    {[[0, 0, '#f4f1ea'], [0.08, 0.05, '#1c1f24'], [-0.07, 0.06, '#f4f1ea'], [0.02, -0.09, '#1c1f24'], [-0.05, -0.05, '#c62828']].map(([x, z, color]) => <Cyl key={`${x}${z}`} position={[x as number, 0.676, z as number]} radius={0.022} height={0.01} color={color as string}/>)}
+    <PlasticStool position={[0, 0, 0.75]} color="#3d7fd6"/>
+    <PlasticStool position={[0, 0, -0.75]} color="#d64545"/>
+  </Group>
 }

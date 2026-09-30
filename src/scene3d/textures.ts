@@ -144,17 +144,13 @@ export function screenTexture(active: boolean) {
   })
 }
 
-/** The sign on the roof: RUANG in red on white, with a small subtitle. */
-export function companySign() {
-  return canvasTexture('company-sign', 1024, 200, (ctx) => {
-    ctx.fillStyle = '#fbfaf5'; ctx.fillRect(0, 0, 1024, 200)
-    ctx.fillStyle = '#c8102e'; ctx.fillRect(0, 0, 1024, 14); ctx.fillRect(0, 186, 1024, 14)
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-    ctx.fillStyle = '#c8102e'
-    ctx.font = 'bold 116px "Arial Black", Arial, sans-serif'
-    ctx.fillText('RUANG', 512, 90, 980)
-    ctx.fillStyle = '#1d3557'
-    ctx.font = 'bold 30px Arial, sans-serif'
-    ctx.fillText('HERMES  3D  VIRTUAL  OFFICE', 512, 158, 980)
+/** A retro game on the arcade screens: a grid of bricks, a paddle and a ball. */
+export function arcadeScreen() {
+  return canvasTexture('arcade-screen', 128, 100, (ctx) => {
+    ctx.fillStyle = '#0b1026'; ctx.fillRect(0, 0, 128, 100)
+    const colors = ['#e63946', '#f4a261', '#f4d35e', '#2a9d8f', '#3a86ff']
+    colors.forEach((color, row) => { ctx.fillStyle = color; for (let col = 0; col < 8; col += 1) ctx.fillRect(6 + col * 15, 10 + row * 7, 13, 5) })
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(52, 88, 26, 4); ctx.fillRect(70, 64, 4, 4)
   })
 }
+
