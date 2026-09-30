@@ -14,7 +14,7 @@ function StatTile({ label, value, detail, onClick }: { label: string; value: str
 /** The operations overview (formerly the Dashboard page), shown in the Office panel's Stats tab. */
 export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: DashboardSnapshot | null; pending?: boolean; onNavigate?: (page: Page) => void }) {
   if (pending) return <LoadingState message="Reading runtime signals..."/>
-  if (!dashboard) return <EmptyState title="Not Available">The PT AI Maju Jaya API could not be reached. Start it with <code>npm run dev</code>.</EmptyState>
+  if (!dashboard) return <EmptyState title="Not Available">The Ruang API could not be reached. Start it with <code>npm run dev</code>.</EmptyState>
   const { runtime, tasks, calendar, activity, knowledge, channels, office, usage, commands } = dashboard
   const go = (page: Page) => onNavigate ? () => onNavigate(page) : undefined
   const lead = runtime.profiles.data.find((profile) => profile.name === 'default')
@@ -26,7 +26,7 @@ export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: D
   const hermesMissing = /not installed/i.test(runtime.profiles.error?.message ?? '')
 
   return <div className="stats-view">
-    {hermesMissing && <section className="notice" role="status"><strong>Hermes CLI not found.</strong> PT AI Maju Jaya reads everything through the <code>hermes</code> command. Install Hermes Agent and make sure <code>hermes</code> is on the PATH of the shell that runs <code>npm run dev</code>, then press Refresh all.</section>}
+    {hermesMissing && <section className="notice" role="status"><strong>Hermes CLI not found.</strong> Ruang reads everything through the <code>hermes</code> command. Install Hermes Agent and make sure <code>hermes</code> is on the PATH of the shell that runs <code>npm run dev</code>, then press Refresh all.</section>}
     <section className="stat-grid" aria-label="Key statistics">
       <StatTile label="Gateways running" value={`${office.gatewaysReachable} / ${office.gatewaysDeclared}`} detail="Lead + Engineer" onClick={go('Agents')}/>
       <StatTile label="Crew active" value={`${office.active} / ${office.declared}`} detail={`${office.idle} idle · ${office.offline} offline · ${office.unknown} unknown`} />

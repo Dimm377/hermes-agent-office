@@ -398,7 +398,7 @@ export function AcOutdoorUnit({ position, rotation = 0 }: { position: Vec3; rota
   </Group>
 }
 
-/** Rooftop company sign on two posts; lit from within in the evening. */
+/** Rooftop Ruang sign on two posts; lit from within in the evening. */
 export function CompanySign({ position, night }: { position: Vec3; night: boolean }) {
   const texture = useMemo(() => companySign(), [])
   return <group position={position}>

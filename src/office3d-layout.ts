@@ -126,13 +126,13 @@ function stallSpot(stall: Vec3, x: number, z: number, facing: number, seated = f
  * pick the same stop never stand in each other.
  */
 export const IDLE_STOPS: IdleStop[] = [
-  { key: 'lounge', label: 'Santai di lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
-  { key: 'galon', label: 'Ambil air galon', spots: [spot(8.35, -0.4, Math.PI / 2), spot(8.2, -1.05, 2.2), spot(8.2, 0.3, 1.1)] },
+  { key: 'lounge', label: 'Relaxing in the lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
+  { key: 'galon', label: 'Getting water from the galon', spots: [spot(8.35, -0.4, Math.PI / 2), spot(8.2, -1.05, 2.2), spot(8.2, 0.3, 1.1)] },
   // On the gerobak's plastic stools, facing the cart.
-  { key: 'bakso', label: 'Makan bakso', spots: [stallSpot(BAKSO_CART, 0.5, 1.1, Math.PI, true), stallSpot(BAKSO_CART, -0.3, 1.2, Math.PI, true), stallSpot(BAKSO_CART, 1.3, 0.9, -2.4)] },
-  { key: 'dapur', label: 'Ke dapur', spots: [spot(8.25, 2.6, Math.PI / 2), spot(8.3, 0.65, Math.PI / 2), spot(8.25, 3.3, Math.PI / 2)] },
-  { key: 'kopi', label: 'Ngopi di kopi keliling', spots: [stallSpot(KOPI_BIKE, -0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 1.45, 0.3, -Math.PI / 2)] },
-  { key: 'jalan', label: 'Jalan-jalan', spots: [spot(FLAG[0] - 0.8, FLAG[2] + 0.3, Math.PI / 2), spot(BUILDING.minX + 0.95, -0.9, -Math.PI / 2), spot(1.3, -4.4, Math.PI)] },
+  { key: 'bakso', label: 'Eating bakso', spots: [stallSpot(BAKSO_CART, 0.5, 1.1, Math.PI, true), stallSpot(BAKSO_CART, -0.3, 1.2, Math.PI, true), stallSpot(BAKSO_CART, 1.3, 0.9, -2.4)] },
+  { key: 'dapur', label: 'In the kitchen', spots: [spot(8.25, 2.6, Math.PI / 2), spot(8.3, 0.65, Math.PI / 2), spot(8.25, 3.3, Math.PI / 2)] },
+  { key: 'kopi', label: 'Coffee at the kopi bike', spots: [stallSpot(KOPI_BIKE, -0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 0.5, 0.85, Math.PI), stallSpot(KOPI_BIKE, 1.45, 0.3, -Math.PI / 2)] },
+  { key: 'jalan', label: 'Taking a stroll', spots: [spot(FLAG[0] - 0.8, FLAG[2] + 0.3, Math.PI / 2), spot(BUILDING.minX + 0.95, -0.9, -Math.PI / 2), spot(1.3, -4.4, Math.PI)] },
 ]
 /** How long an idle agent stays at one stop (walking included). */
 export const IDLE_STOP_MS = 32_000

@@ -802,7 +802,7 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
       ? live.probe.active ? `${live.probe.label ?? 'Active'}${live.probe.lastSeen ? ` (last log ${live.probe.lastSeen})` : ''}` : `No activity in the last ${ACTIVITY_WINDOW}`
       : activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
     const runtimeProvenance = gateway ? `Gateway ${gateway.availability === 'available' ? gateway.data : 'Not Available'}` : 'OpenCode version availability is not a state signal'
-    const managedIdle = state === 'Idle' ? '; PT AI Maju Jaya managed-idle placement policy (not agent-reported presence)' : ''
+    const managedIdle = state === 'Idle' ? '; Ruang managed-idle placement policy (not agent-reported presence)' : ''
     const liveProvenance = options.agentActivity ? `; live activity (${metadata.profile ? `hermes -p ${metadata.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
     return {
       name: metadata.name,

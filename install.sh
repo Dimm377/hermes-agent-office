@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# PT AI Maju Jaya · 3D Office installer for macOS, Linux and WSL2.
+# Ruang (Hermes 3D Virtual Office) installer for macOS, Linux and WSL2.
 #
-#   curl -fsSL https://raw.githubusercontent.com/yugienugraha/pt-ai-maju-jaya/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/yugienugraha/ruang/main/install.sh | bash
 #
-# Installs the latest release into ~/.local/share/pt-ai-maju-jaya and a `majujaya`
-# command into ~/.local/bin. Nothing is installed system-wide and sudo is never used. If no
-# suitable Node.js (20+) is found, a private copy is downloaded for PT AI Maju Jaya only.
+# Installs the latest release into ~/.local/share/ruang and a `ruang` command into
+# ~/.local/bin. Nothing is installed system-wide and sudo is never used. If no
+# suitable Node.js (20+) is found, a private copy is downloaded for Ruang only.
 # Run it again to update. Options (pass them after `bash -s --` when piping):
 #
 #   --service        also run it as a systemd user service (Linux)
@@ -15,18 +15,18 @@
 #   --uninstall      remove it, its service and its private Node.js
 #   -h, --help       show this help
 #
-# Environment: MAJUJAYA_HOME (install folder), MAJUJAYA_BIN (command folder).
+# Environment: RUANG_HOME (install folder), RUANG_BIN (command folder).
 
 set -euo pipefail
 
-REPO="yugienugraha/pt-ai-maju-jaya"
-PACKAGE="pt-ai-maju-jaya"
-COMMAND="majujaya"
+REPO="yugienugraha/ruang"
+PACKAGE="ruang"
+COMMAND="ruang"
 NODE_MAJOR_MIN=20
 NODE_MAJOR_PRIVATE=22
-INSTALL_HOME="${MAJUJAYA_HOME:-$HOME/.local/share/pt-ai-maju-jaya}"
-BIN_DIR="${MAJUJAYA_BIN:-$HOME/.local/bin}"
-SERVICE_NAME="majujaya"
+INSTALL_HOME="${RUANG_HOME:-$HOME/.local/share/ruang}"
+BIN_DIR="${RUANG_BIN:-$HOME/.local/bin}"
+SERVICE_NAME="ruang"
 SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME.service"
 WORK=""
 export NPM_CONFIG_UPDATE_NOTIFIER=false NPM_CONFIG_FUND=false
@@ -38,9 +38,9 @@ fail() { printf '\033[31mx %s\033[0m\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'HELP'
-PT AI Maju Jaya · 3D Office installer (macOS, Linux, WSL2)
+Ruang · Hermes 3D Virtual Office installer (macOS, Linux, WSL2)
 
-  curl -fsSL https://raw.githubusercontent.com/yugienugraha/pt-ai-maju-jaya/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/yugienugraha/ruang/main/install.sh | bash
   curl -fsSL .../install.sh | bash -s -- --service
 
 Options:
@@ -51,7 +51,7 @@ Options:
   --uninstall      remove it, its service and its private Node.js
   -h, --help       show this help
 
-Environment: MAJUJAYA_HOME (install folder), MAJUJAYA_BIN (command folder).
+Environment: RUANG_HOME (install folder), RUANG_BIN (command folder).
 HELP
 }
 
@@ -89,7 +89,7 @@ ensure_node() {
     *) fail "Unsupported CPU $(uname -m) for the bundled Node.js; install Node.js $NODE_MAJOR_MIN+ yourself and rerun." ;;
   esac
 
-  info "Node.js $NODE_MAJOR_MIN+ not found; downloading a private Node.js $NODE_MAJOR_PRIVATE for PT AI Maju Jaya..." >&2
+  info "Node.js $NODE_MAJOR_MIN+ not found; downloading a private Node.js $NODE_MAJOR_PRIVATE for Ruang..." >&2
   local base="https://nodejs.org/dist/latest-v$NODE_MAJOR_PRIVATE.x"
   local work sums file
   work="$(mktemp -d)"
@@ -156,7 +156,7 @@ write_launcher() {
   mkdir -p "$BIN_DIR"
   cat > "$BIN_DIR/$COMMAND" <<LAUNCHER
 #!/bin/sh
-# Installed by the PT AI Maju Jaya installer; rerun the installer to update.
+# Installed by the Ruang installer; rerun the installer to update.
 exec "$node_bin" "$INSTALL_HOME/app/lib/node_modules/$PACKAGE/bin/$COMMAND.js" "\$@"
 LAUNCHER
   chmod +x "$BIN_DIR/$COMMAND"
@@ -171,7 +171,7 @@ install_service() {
   # systemd starts services with a minimal PATH; keep the current one so `hermes` is found.
   cat > "$SERVICE_FILE" <<UNIT
 [Unit]
-Description=PT AI Maju Jaya 3D Office (read-only Hermes mission control)
+Description=Ruang, Hermes 3D Virtual Office (read-only mission control)
 After=network.target
 
 [Service]
@@ -189,23 +189,27 @@ UNIT
   info "To keep it running after you log out: loginctl enable-linger $USER"
 }
 
-# Removes an install made under the project's previous name (Mission Control), if any.
-remove_previous_name() {
-  local old_launcher="$BIN_DIR/mission-control" old_service="$HOME/.config/systemd/user/mission-control.service"
-  if [ -f "$old_launcher" ] && grep -q "Mission Control installer" "$old_launcher" 2>/dev/null; then
-    if [ -f "$old_service" ] && command -v systemctl >/dev/null 2>&1; then
-      systemctl --user disable --now mission-control >/dev/null 2>&1 || true
-      rm -f "$old_service"
+# Removes installs made under the project's previous names (Mission Control, PT AI Maju Jaya).
+remove_previous_names() {
+  local old_command folder
+  for entry in "mission-control:mission-control:Mission Control installer" "majujaya:pt-ai-maju-jaya:PT AI Maju Jaya installer"; do
+    old_command="${entry%%:*}"
+    folder="${entry#*:}"; folder="${folder%%:*}"
+    local marker="${entry##*:}" launcher="$BIN_DIR/$old_command" unit="$HOME/.config/systemd/user/$old_command.service"
+    [ -f "$launcher" ] && grep -q "$marker" "$launcher" 2>/dev/null || continue
+    if [ -f "$unit" ] && command -v systemctl >/dev/null 2>&1; then
+      systemctl --user disable --now "$old_command" >/dev/null 2>&1 || true
+      rm -f "$unit"
       systemctl --user daemon-reload >/dev/null 2>&1 || true
     fi
-    rm -rf "$HOME/.local/share/mission-control"
-    rm -f "$old_launcher"
-    info "Removed the previous Mission Control install (the project is now PT AI Maju Jaya)."
-  fi
+    rm -rf "$HOME/.local/share/$folder"
+    rm -f "$launcher"
+    info "Removed the previous install under the old name ($old_command); the project is now Ruang."
+  done
 }
 
 uninstall() {
-  bold "Removing PT AI Maju Jaya"
+  bold "Removing Ruang"
   if [ -f "$SERVICE_FILE" ] && command -v systemctl >/dev/null 2>&1; then
     systemctl --user disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
     rm -f "$SERVICE_FILE"
@@ -214,7 +218,7 @@ uninstall() {
   rm -rf "$INSTALL_HOME"
   rm -f "$BIN_DIR/$COMMAND"
   info "Removed $INSTALL_HOME and $BIN_DIR/$COMMAND."
-  remove_previous_name
+  remove_previous_names
 }
 
 main() {
@@ -232,7 +236,7 @@ main() {
     shift
   done
 
-  bold "Installing PT AI Maju Jaya · 3D Office"
+  bold "Installing Ruang · Hermes 3D Virtual Office"
   need curl
   need tar
   mkdir -p "$INSTALL_HOME"
@@ -253,14 +257,14 @@ main() {
   PATH="$(dirname "$node_bin"):$PATH" "$npm_cli" install --global --prefix "$INSTALL_HOME/app" \
     --omit=dev --no-audit --no-fund --loglevel=error "$package" >/dev/null
   write_launcher "$node_bin"
-  remove_previous_name
+  remove_previous_names
 
   local installed
   installed="$("$BIN_DIR/$COMMAND" --version)"
-  bold "PT AI Maju Jaya $installed installed."
+  bold "Ruang $installed installed."
 
   if ! command -v hermes >/dev/null 2>&1; then
-    warn "The Hermes CLI (hermes) is not on your PATH. PT AI Maju Jaya reads everything through it; install Hermes Agent first."
+    warn "The Hermes CLI (hermes) is not on your PATH. Ruang reads everything through it; install Hermes Agent first."
   fi
   if [ "$service" = 1 ]; then
     install_service

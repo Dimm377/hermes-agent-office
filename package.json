@@ -1,15 +1,15 @@
 {
-  "name": "pt-ai-maju-jaya",
+  "name": "ruang",
   "version": "0.2.0",
-  "description": "PT AI Maju Jaya: kantor 3D buat budak korporat AI-mu. Read-only mission control & 3D office for Hermes Agent.",
+  "description": "Ruang: a 3D virtual office and read-only mission control for your Hermes Agent and OpenCode crew",
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yugienugraha/pt-ai-maju-jaya.git"
+    "url": "git+https://github.com/yugienugraha/ruang.git"
   },
-  "homepage": "https://github.com/yugienugraha/pt-ai-maju-jaya#readme",
+  "homepage": "https://github.com/yugienugraha/ruang#readme",
   "bin": {
-    "majujaya": "bin/majujaya.js"
+    "ruang": "bin/ruang.js"
   },
   "files": [
     "bin",
@@ -24,7 +24,7 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build && tsc -p tsconfig.server.build.json",
-    "start": "node bin/majujaya.js",
+    "start": "node bin/ruang.js",
     "lint": "eslint .",
     "test": "vitest run"
   },
@@ -60,8 +60,8 @@
     "opencode",
     "mission-control",
     "3d-office",
+    "virtual-office",
     "dashboard",
-    "ai-agents",
-    "indonesia"
+    "ai-agents"
   ]
 }

@@ -160,7 +160,7 @@ describe('Office snapshot', () => {
       { name: 'OpenCode', room: 'Lounge', roomPosition: 'lounge-seat-3', state: 'Idle' },
     ])
     expect(office.stations[2].provenance).toContain('OpenCode version availability is not a state signal')
-    expect(office.stations[0].provenance).toContain('PT AI Maju Jaya managed-idle placement policy')
+    expect(office.stations[0].provenance).toContain('Ruang managed-idle placement policy')
     expect(office.summary).toEqual({ declared: 3, active: 0, idle: 3, offline: 0, unknown: 0, gatewaysReachable: 2, gatewaysDeclared: 2 })
   })
 

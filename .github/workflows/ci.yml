@@ -25,6 +25,6 @@ jobs:
       - name: Package installs and starts
         run: |
           npm pack
-          npm install --global --prefix "$RUNNER_TEMP/mc" ./pt-ai-maju-jaya-*.tgz
-          "$RUNNER_TEMP/mc/bin/majujaya" --version
+          npm install --global --prefix "$RUNNER_TEMP/mc" ./ruang-*.tgz
+          "$RUNNER_TEMP/mc/bin/ruang" --version
           bash -n install.sh

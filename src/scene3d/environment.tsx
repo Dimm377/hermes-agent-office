@@ -82,7 +82,7 @@ function Building({ night }: { night: boolean }) {
     <GalonDispenser position={[maxX - 0.45, 0, -0.4]} rotation={-Math.PI / 2}/>
     <Fridge position={[maxX - 0.5, 0, 0.6]} rotation={-Math.PI / 2}/>
     <PantryCounter position={[maxX - 0.45, 0, 2.6]} rotation={-Math.PI / 2}/>
-    {/* The company name on the roof, above the back wall */}
+    {/* The Ruang sign on the roof, above the back wall */}
     <CompanySign position={[2.4, WALL_HEIGHT, minZ]} night={night}/>
     {/* Split ACs high on the walls */}
     <AirConditioner position={[-5.3, 2.3, minZ + 0.125]}/>
