@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import express, { type NextFunction, type Request, type Response } from 'express'
 import { excludedFor, FolderError, listFolder, publicAgent, readFolderFile, resolveAgentFolders } from './folders.js'
@@ -8,7 +9,9 @@ import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, get
 
 const HOST = '127.0.0.1'
 const PORT = Number(process.env.MISSION_CONTROL_PORT) || 3001
-const distDirectory = fileURLToPath(new URL('../dist', import.meta.url))
+// The built UI sits next to the server: ../dist from server/*.ts (development, npm start)
+// and ../../dist from build/server/*.js (the installed package).
+const distDirectory = [new URL('../dist', import.meta.url), new URL('../../dist', import.meta.url)].map((url) => fileURLToPath(url)).find((path) => existsSync(join(path, 'index.html'))) ?? fileURLToPath(new URL('../dist', import.meta.url))
 
 const app = express()
 app.disable('x-powered-by')

@@ -1,26 +1,60 @@
 # Mission Control
 
-Read-only Mission Control MVP for the local Hermes and OpenCode runtime.
+A read-only dashboard and 3D office for your local [Hermes Agent](https://hermes-agent.nousresearch.com) and OpenCode crew: see who is working, what they are doing, the Kanban board, cron jobs, sessions, memory, folders and logs, all in one place. Everything is read through the `hermes` CLI; Mission Control never changes anything.
 
-## Run
+![The 3D office: agents at their desks, and idle agents on a break at the gerobak bakso and the kopi keliling](docs/screenshots/office.png)
 
-Requires Node.js 20+ and the Hermes Agent CLI (`hermes`) on the `PATH` of the shell that starts the server. `opencode` is optional.
+![Mission Control statistics in the evening theme](docs/screenshots/mission-control.png)
+
+## Install
+
+Works on macOS, Linux and Windows through WSL2. You need the Hermes Agent CLI (`hermes`) installed; `opencode` is optional. The installer downloads its own Node.js if you do not have Node.js 20 or newer.
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/yugienugraha/mission-control-hermes/main/install.sh | bash
+```
+
+Then start it and open http://127.0.0.1:3001:
+
+```bash
+mission-control              # or: mission-control --port 3005
+```
+
+- **Run it in the background, and at boot (Linux):** add `--service` to install a systemd user service:
+  `curl -fsSL https://raw.githubusercontent.com/yugienugraha/mission-control-hermes/main/install.sh | bash -s -- --service`
+  To keep it running after you log out, also run `loginctl enable-linger $USER`.
+- **Update:** run the install command again.
+- **Remove:** add `--uninstall` (`... | bash -s -- --uninstall`).
+- **Other options:** `--version v0.2.0` installs a specific release; `--from-source` builds the latest `main` (needs `git`). See `install.sh --help`.
+- **On a server:** Mission Control listens on `127.0.0.1` only. From your laptop, run `ssh -L 3001:127.0.0.1:3001 user@server`, then open http://127.0.0.1:3001.
+
+Everything goes into `~/.local/share/mission-control`, plus the `mission-control` command in `~/.local/bin`. No sudo is used and nothing is installed system-wide. Prefer to read the script before running it? `curl -fsSL https://raw.githubusercontent.com/yugienugraha/mission-control-hermes/main/install.sh -o install.sh`, read it, then `bash install.sh`.
+
+**With your own Node.js 20+:** download `mission-control-hermes.tgz` from the [latest release](https://github.com/yugienugraha/mission-control-hermes/releases/latest) and run `npm install -g ./mission-control-hermes.tgz`. Once the package is on npm this becomes `npm install -g mission-control-hermes` (or `npx mission-control-hermes`).
+
+## Development
+
+Requires Node.js 20+ and `hermes` on the `PATH` of the shell that starts the server.
+
+```bash
+git clone https://github.com/yugienugraha/mission-control-hermes.git
+cd mission-control-hermes
 npm install
 npm run dev        # API on 127.0.0.1:3001 + Vite UI (open the URL Vite prints, usually http://localhost:5173)
 ```
 
-Production (single process, serves the built UI and the API):
+Production from a checkout (single process, serves the built UI and the API):
 
 ```bash
-npm run build
+npm run build      # builds the UI into dist/ and the server into build/server/
 npm start          # open http://127.0.0.1:3001
 ```
 
 Checks: `npm run lint`, `npm test`, `npm run build`.
 
-**After pulling new code** run `npm install && npm run build` and restart `npm start` (a running `npm start` keeps serving the old API; `npm run dev` restarts the API by itself). The UI checks `/api/health` and shows a *Restart needed* banner when the server is older than the page. Set `MISSION_CONTROL_PORT` to change the port. The server binds to `127.0.0.1` only.
+**After pulling new code** run `npm install && npm run build` and restart `npm start` (a running `npm start` keeps serving the old API; `npm run dev` restarts the API by itself). The UI checks `/api/health` and shows a *Restart needed* banner when the server is older than the page. Set `MISSION_CONTROL_PORT` (or pass `--port`) to change the port. The server binds to `127.0.0.1` only.
+
+**Releasing:** bump the version and push the tag, for example `npm version 0.2.1 && git push origin main --follow-tags`. The *Release* workflow then lints, tests, builds and attaches `mission-control-hermes.tgz` to a GitHub release, which the installer picks up. To also publish to npm, add an `NPM_TOKEN` repository secret.
 
 ## Pages
 
