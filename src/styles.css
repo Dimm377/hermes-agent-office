@@ -501,6 +501,11 @@ main { max-width: 1680px; }
 .view-toggle button:disabled { cursor: not-allowed; opacity: .45; }
 .office-3d { aspect-ratio: 2.1 / 1; background: #15201c; border: 8px solid #121a18; box-shadow: inset 0 0 0 2px #4d6459; min-height: 420px; position: relative; touch-action: none; }
 .office-3d canvas { display: block; }
+.office-3d:focus-visible { outline: 2px solid var(--accent, #6fb6d6); outline-offset: 2px; }
+.office-3d-tools { display: flex; gap: 6px; position: absolute; right: 10px; top: 10px; z-index: 2; }
+.office-3d-tools button { background: rgba(18, 26, 24, 0.78); border: 1px solid rgba(255, 255, 255, 0.22); border-radius: 6px; color: #f4efe6; cursor: pointer; font: inherit; font-size: 12px; padding: 5px 10px; }
+.office-3d-tools button:hover { background: rgba(18, 26, 24, 0.92); }
+.office-3d-tools button.active { background: #d9534f; border-color: #f4efe6; }
 .office-3d > div:first-child { position: absolute !important; inset: 0; }
 .office-3d-labels { inset: 0; overflow: clip; pointer-events: none; position: absolute; }
 .office-3d-labels > * { left: 0; position: absolute; top: 0; visibility: hidden; will-change: transform; }
@@ -512,5 +517,5 @@ main { max-width: 1680px; }
 .agent-tag-3d.state-offline { opacity: .7; }
 .speech-3d { max-width: 150px; width: max-content; white-space: normal; }
 .desk-label-3d { background: #101815; color: #b7c9bf; font: 8px ui-monospace, monospace; letter-spacing: .04em; padding: 1px 4px; pointer-events: none; white-space: nowrap; }
-@media (max-width: 700px) { .office-3d { aspect-ratio: auto; height: 400px; min-height: 0; } }
+@media (max-width: 700px) { .office-3d { aspect-ratio: auto; height: 400px; min-height: 0; } .office-3d-tools { bottom: 10px; top: auto; } }
 @media (max-width: 700px) { .speech-3d { max-width: 120px; font-size: 8px; } .agent-tag-3d .pixel-station-name { font-size: 9px; } .agent-tag-3d .badge { font-size: 8px; } }

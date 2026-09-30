@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DESKS, LOUNGE_SEATS, MEETING_SEATS, placementFor } from './office3d-layout.ts'
+import { AISLE_Z, DESKS, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, clampTarget, placementFor, walkPath } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -23,5 +23,17 @@ describe('3D office placement', () => {
   it('keeps offline and unknown agents standing at their desk and clamps odd seats', () => {
     expect(placementFor(station({ state: 'Offline', roomPosition: 'offline-station', seat: 1 })).seated).toBe(false)
     expect(placementFor(station({ state: 'Unknown', roomPosition: 'neutral-presence', seat: 9 })).position[0]).toBe(DESKS[2][0])
+  })
+})
+
+describe('3D office movement', () => {
+  it('walks via the aisle instead of through desks', () => {
+    expect(walkPath([-7.2, -4.25], [4, -3.55])).toEqual([[-7.2, AISLE_Z], [4, AISLE_Z], [4, -3.55]])
+    expect(walkPath([1, 1], [1.1, 1.1])).toEqual([[1.1, 1.1]])
+  })
+
+  it('keeps the panned view inside the grounds', () => {
+    expect(clampTarget(100, -100)).toEqual([PAN_BOUNDS.maxX, PAN_BOUNDS.minZ])
+    expect(clampTarget(1, 2)).toEqual([1, 2])
   })
 })
