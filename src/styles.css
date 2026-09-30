@@ -348,12 +348,7 @@ body { background: var(--c-101311); color: var(--text); }
 .header-title { align-items: center; display: inline-flex; gap: 12px; }
 .icon-button { align-items: center; background: transparent; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); cursor: pointer; display: inline-flex; font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; gap: 6px; justify-content: center; min-height: 28px; min-width: 30px; padding: 3px 8px; }
 .icon-button:hover { border-color: var(--accent); }
-.theme-toggle span { font-size: 10px; letter-spacing: .07em; }
-.sidebar-theme { background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; font: 12px inherit; margin-top: 12px; padding: 8px 10px; text-align: left; }
-.sidebar-theme:hover { border-color: var(--accent); color: var(--text); }
-.app.sidebar-hidden { grid-template-columns: minmax(0, 1fr); }
-.app.sidebar-hidden > aside { display: none; }
-@media (max-width: 760px) { .theme-toggle span { display: none; } .header-title > span { display: none; } }
+@media (max-width: 760px) { .header-title > span { display: none; } }
 
 /* ---- Office: wide room, small characters, fixed desks, activity bubbles ---- */
 main { max-width: 1680px; }
@@ -442,7 +437,7 @@ main { max-width: 1680px; }
 .office-summary { align-content: start; }
 .room-hint { display: none; }
 .breadcrumb .refresh-button { border: 1px solid var(--border-strong); font-size: 10px; letter-spacing: .07em; padding: 5px 9px; }
-@media (max-width: 760px) { .room-hint { color: var(--text-dim); display: block; font: 10px ui-monospace, monospace; margin: 6px 0 0; } .sidebar-theme { display: none; } }
+@media (max-width: 760px) { .room-hint { color: var(--text-dim); display: block; font: 10px ui-monospace, monospace; margin: 6px 0 0; } }
 .folder-path { font-size: 11px; justify-self: start; overflow-wrap: anywhere; }
 
 /* ---- Task detail ---- */
@@ -519,3 +514,85 @@ main { max-width: 1680px; }
 .desk-label-3d { background: #101815; color: #b7c9bf; font: 8px ui-monospace, monospace; letter-spacing: .04em; padding: 1px 4px; pointer-events: none; white-space: nowrap; }
 @media (max-width: 700px) { .office-3d { aspect-ratio: auto; height: 400px; min-height: 0; } .office-3d-tools { bottom: 10px; top: auto; } }
 @media (max-width: 700px) { .speech-3d { max-width: 120px; font-size: 8px; } .agent-tag-3d .pixel-station-name { font-size: 9px; } .agent-tag-3d .badge { font-size: 8px; } }
+
+/* App shell: navigation is a drawer over the page (closed by default), like a game menu. */
+.app, .app.app-office { display: block; }
+aside.drawer { background: var(--surface); border: 0; border-right: 1px solid var(--border); bottom: 0; box-shadow: 12px 0 40px #0006; display: flex; flex-direction: column; left: 0; overflow-y: auto; padding: 20px 18px; position: fixed; top: 0; width: min(280px, 86vw); z-index: 60; }
+aside.drawer[hidden] { display: none; }
+.drawer-backdrop { background: #0008; inset: 0; position: fixed; z-index: 55; }
+.drawer-head { align-items: center; display: flex; justify-content: space-between; }
+.drawer nav { display: grid; gap: 4px; margin-top: 28px; overflow: visible; }
+.drawer nav a { white-space: normal; }
+.drawer .sidebar-note { display: block; margin-top: auto; padding-top: 20px; }
+.drawer-hint { color: var(--text-dim); display: block; margin-top: 8px; }
+.menu-button { position: relative; }
+.menu-alert { background: var(--c-ff9d8f); border: 2px solid var(--surface); border-radius: 50%; height: 10px; position: absolute; right: -4px; top: -4px; width: 10px; }
+.header-actions { gap: 10px; }
+
+/* Office is the home page and fills the screen below the header. */
+.app-office main { max-width: none; padding: 0; }
+.app-office header { padding: 10px 16px; }
+.app-office .version-notice { margin: 10px 16px; }
+.office-stage { height: calc(100dvh - 49px); min-height: 460px; overflow: hidden; position: relative; }
+.office-canvas { inset: 0; position: absolute; }
+.view-2d .office-canvas { overflow: auto; padding: 66px 16px 16px; }
+.office-stage .office-3d { aspect-ratio: auto; border: 0; box-shadow: none; height: 100%; inset: 0; min-height: 0; position: absolute; }
+.office-stage .office-3d-tools { bottom: 12px; right: 12px; top: auto; }
+.office-3d-hint { background: color-mix(in srgb, var(--surface) 80%, transparent); border-radius: 4px; bottom: 12px; left: 12px; padding: 5px 9px; pointer-events: none; position: absolute; z-index: 3; }
+.office-failed { left: 16px; position: absolute; right: 16px; top: 70px; z-index: 3; }
+.office-note { margin: 0 0 10px; }
+
+.office-hud { display: flex; flex-wrap: wrap; gap: 6px; left: 12px; position: absolute; right: 190px; top: 12px; z-index: 4; }
+.hud-chip { align-items: baseline; backdrop-filter: blur(6px); background: color-mix(in srgb, var(--surface) 82%, transparent); border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); display: inline-flex; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; gap: 7px; padding: 6px 10px; white-space: nowrap; }
+button.hud-chip { cursor: pointer; }
+button.hud-chip:hover { border-color: var(--accent); }
+.hud-chip span { color: var(--text-muted); letter-spacing: .05em; text-transform: uppercase; font-size: 10px; }
+.hud-chip b { font-weight: 600; }
+.hud-chip.warn { border-color: var(--c-eab474); }
+.hud-chip.warn b { color: var(--c-eab474); }
+.hud-chip.bad { border-color: var(--c-ff9d8f); }
+.hud-chip.bad b { color: var(--c-ff9d8f); }
+.office-stage-tools { display: flex; gap: 6px; position: absolute; right: 12px; top: 12px; z-index: 4; }
+.office-stage-tools .view-toggle { backdrop-filter: blur(6px); background: color-mix(in srgb, var(--surface) 82%, transparent); }
+.panel-toggle { backdrop-filter: blur(6px); background: color-mix(in srgb, var(--surface) 82%, transparent); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); cursor: pointer; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; padding: 7px 12px; }
+.panel-toggle:hover, .panel-toggle.active { border-color: var(--accent); }
+.panel-toggle.active { background: var(--active-bg); color: var(--active-text); }
+
+/* One panel for crew, statistics (the former Dashboard) and activity. */
+aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transparent); border: 1px solid var(--border-strong); border-radius: 8px; bottom: 12px; box-shadow: 0 16px 40px #0007; display: flex; flex-direction: column; padding: 0; position: absolute; right: 12px; top: 56px; width: min(400px, calc(100% - 24px)); z-index: 5; }
+.office-panel-head { align-items: center; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; padding: 8px 10px; }
+.panel-tabs { display: flex; gap: 4px; }
+.panel-tabs button { background: transparent; border: 1px solid transparent; border-radius: 4px; color: var(--text-muted); cursor: pointer; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .06em; padding: 6px 10px; }
+.panel-tabs button.active { background: var(--active-bg); border-color: var(--active-border); color: var(--active-text); }
+.office-panel-body { display: grid; gap: 12px; align-content: start; overflow-y: auto; padding: 12px; }
+.office-panel .stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.office-panel .stat-tile { gap: 6px; min-height: 86px; padding: 12px; }
+.office-panel .stat-tile strong { font-size: 19px; }
+.office-panel .dash-grid { grid-template-columns: minmax(0, 1fr); margin-top: 12px; }
+.office-panel .card { padding: 14px; }
+.office-panel .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.office-panel .bar-list > div { grid-template-columns: 90px 1fr 40px; }
+.office-panel .notice { margin: 0 0 12px; }
+.crew-list { display: grid; gap: 6px; }
+.crew-row { align-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; display: grid; gap: 10px; grid-template-columns: 34px minmax(0, 1fr) auto; padding: 6px 10px; text-align: left; }
+.crew-row:hover { border-color: var(--accent); }
+.crew-row .pixel-character { zoom: .55; }
+.crew-row > span:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
+.crew-row strong { font-size: 13px; }
+.crew-row small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (max-width: 700px) {
+  .app-office header { padding: 8px 12px; }
+  .office-stage { height: calc(100dvh - 45px); min-height: 520px; }
+  .office-hud { flex-wrap: nowrap; overflow-x: auto; right: 12px; scrollbar-width: none; }
+  .office-stage-tools { top: 50px; }
+  aside.office-panel { top: 92px; }
+  .view-2d .office-canvas { padding-top: 96px; }
+  .office-3d-hint { display: none; }
+  .sync-label { display: none; }
+}
+.speech-3d.speech-idle { background: color-mix(in srgb, var(--surface) 88%, transparent); border-style: dashed; color: var(--text-muted); font-style: italic; }
+/* Keep the 3D labels (which use high z-indexes among themselves) under the drawer and panel. */
+.office-3d { isolation: isolate; }
+.office-stage:has(.office-panel) .office-3d-tools { right: min(424px, calc(100% - 12px)); }
+@media (max-width: 700px) { .office-stage:has(.office-panel) .office-3d-tools { display: none; } }

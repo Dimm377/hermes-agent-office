@@ -11,8 +11,9 @@ function StatTile({ label, value, detail, onClick }: { label: string; value: str
   return <button type="button" className="stat-tile" onClick={onClick} disabled={!onClick}><span>{label}</span><strong className={value === 'Not Available' ? 'na' : undefined}>{value}</strong>{detail && <small>{detail}</small>}</button>
 }
 
-export function Dashboard({ dashboard, pending = false, onNavigate }: { dashboard: DashboardSnapshot | null; pending?: boolean; onNavigate?: (page: Page) => void }) {
-  if (pending) return <><section className="hero"><p className="eyebrow">OPERATIONS OVERVIEW</p><h1>Mission control, <em>without the noise.</em></h1></section><LoadingState message="Reading runtime signals..."/></>
+/** The operations overview (formerly the Dashboard page), shown in the Office panel's Stats tab. */
+export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: DashboardSnapshot | null; pending?: boolean; onNavigate?: (page: Page) => void }) {
+  if (pending) return <LoadingState message="Reading runtime signals..."/>
   if (!dashboard) return <EmptyState title="Not Available">The Mission Control API could not be reached. Start it with <code>npm run dev</code>.</EmptyState>
   const { runtime, tasks, calendar, activity, knowledge, channels, office, usage, commands } = dashboard
   const go = (page: Page) => onNavigate ? () => onNavigate(page) : undefined
@@ -24,18 +25,16 @@ export function Dashboard({ dashboard, pending = false, onNavigate }: { dashboar
   const maxTool = Math.max(1, ...(insight?.tools.map((tool) => tool.calls) ?? [1]))
   const hermesMissing = /not installed/i.test(runtime.profiles.error?.message ?? '')
 
-  return <>
-    <section className="hero"><p className="eyebrow">OPERATIONS OVERVIEW</p><h1>Mission control, <em>without the noise.</em></h1><p>Live reads from Hermes and OpenCode, cached server-side for 10 seconds and refreshed automatically.</p></section>
-
+  return <div className="stats-view">
     {hermesMissing && <section className="notice" role="status"><strong>Hermes CLI not found.</strong> Mission Control reads everything through the <code>hermes</code> command. Install Hermes Agent and make sure <code>hermes</code> is on the PATH of the shell that runs <code>npm run dev</code>, then press Refresh all.</section>}
     <section className="stat-grid" aria-label="Key statistics">
       <StatTile label="Gateways running" value={`${office.gatewaysReachable} / ${office.gatewaysDeclared}`} detail="Lead + Engineer" onClick={go('Agents')}/>
-      <StatTile label="Crew active" value={`${office.active} / ${office.declared}`} detail={`${office.idle} idle · ${office.offline} offline · ${office.unknown} unknown`} onClick={go('Office')}/>
+      <StatTile label="Crew active" value={`${office.active} / ${office.declared}`} detail={`${office.idle} idle · ${office.offline} offline · ${office.unknown} unknown`} />
       <StatTile label="Open tasks" value={tasks.availability === 'available' ? formatNumber(openTasks) : 'Not Available'} detail={tasks.availability === 'available' ? `${formatNumber(tasks.total)} total · ${tasks.byStatus.running ?? 0} running` : undefined} onClick={go('Task Board')}/>
       <StatTile label="Scheduled jobs" value={availableCount(calendar)} detail={calendar.availability === 'available' ? `${calendar.active} active · ${calendar.paused} paused` : undefined} onClick={go('Calendar')}/>
       <StatTile label="Recent sessions" value={availableCount(activity)} detail={channels.activeSessions !== undefined ? `${channels.activeSessions} active now` : 'Last 20 listed'} onClick={go('Activity')}/>
       <StatTile label="Enabled skills" value={availableCount(knowledge)} detail={knowledge.availability === 'available' ? `${Object.keys(knowledge.byCategory).length} categories` : undefined} onClick={go('Folders')}/>
-      <StatTile label="Channels" value={availableCount(channels, 'configured')} detail={channels.availability === 'available' ? `${channels.connected} connected` : undefined} onClick={go('Office')}/>
+      <StatTile label="Channels" value={availableCount(channels, 'configured')} detail={channels.availability === 'available' ? `${channels.connected} connected` : undefined} />
       <StatTile label="CLI reads" value={formatNumber(commands.total)} detail={`${commands.failed} failed · ${commands.averageMs} ms avg`} onClick={go('Logs')}/>
     </section>
 
@@ -85,5 +84,6 @@ export function Dashboard({ dashboard, pending = false, onNavigate }: { dashboar
         </dl>
       </article>
     </section>
-  </>
+    <p className="card-note">Live reads from Hermes and OpenCode, cached server-side for 10 seconds and refreshed automatically.</p>
+  </div>
 }

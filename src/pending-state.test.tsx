@@ -1,12 +1,12 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { Agents } from './pages/Agents.tsx'
-import { Dashboard } from './pages/Dashboard.tsx'
+import { Stats } from './pages/Stats.tsx'
 import { Office } from './pages/Office.tsx'
 
 describe('pending application views', () => {
-  it('renders loading instead of runtime placeholders on Dashboard and Agents', () => {
-    const dashboard = renderToStaticMarkup(<Dashboard dashboard={null} pending/>)
+  it('renders loading instead of runtime placeholders on Stats and Agents', () => {
+    const dashboard = renderToStaticMarkup(<Stats dashboard={null} pending/>)
     const agents = renderToStaticMarkup(<Agents runtime={null} pending/>)
 
     for (const markup of [dashboard, agents]) {

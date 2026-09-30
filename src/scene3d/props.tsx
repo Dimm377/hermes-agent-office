@@ -223,12 +223,34 @@ function Wheel({ position }: { position: Vec3 }) {
   </group>
 }
 
-/** Street-food pushcart; `kind` switches between gerobak bakso and gerobak somay. */
-export function Gerobak({ position, rotation = 0, kind }: { position: Vec3; rotation?: number; kind: 'bakso' | 'somay' }) {
-  const bakso = kind === 'bakso'
-  const sign = useMemo(() => bakso ? signTexture('BAKSO', '#c62828', '#fff4d6', 'MALANG · MANTAP') : signTexture('SOMAY', '#1e5aa8', '#fff4d6', 'BANDUNG · ASLI'), [bakso])
-  const body = bakso ? '#f3efe4' : '#f2d27a'
-  const trim = bakso ? '#c62828' : '#1e5aa8'
+/** A standing street vendor (not an agent: vendors never move and carry no state). */
+export function Vendor({ position, rotation = 0, shirt, pants = '#34393f', hat }: { position: Vec3; rotation?: number; shirt: string; pants?: string; hat: 'peci' | 'cap' }) {
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[-0.11, 0.35, 0]} size={[0.17, 0.66, 0.2]} radius={0.05} color={pants}/>
+    <RBox position={[0.11, 0.35, 0]} size={[0.17, 0.66, 0.2]} radius={0.05} color={pants}/>
+    <RBox position={[0, 0.98, 0]} size={[0.48, 0.6, 0.3]} radius={0.07} color={shirt} roughness={0.85}/>
+    <RBox position={[-0.31, 0.95, 0.05]} size={[0.12, 0.52, 0.14]} radius={0.04} rotation={[-0.35, 0, 0]} color={shirt}/>
+    <RBox position={[0.31, 0.95, 0.05]} size={[0.12, 0.52, 0.14]} radius={0.04} rotation={[-0.35, 0, 0]} color={shirt}/>
+    <RBox position={[0, 1.5, 0]} size={[0.4, 0.4, 0.37]} radius={0.08} color="#c98e5a" roughness={0.7}/>
+    <RBox position={[-0.09, 1.52, 0.186]} size={[0.06, 0.07, 0.01]} radius={0.004} color="#17201e" shadow={false}/>
+    <RBox position={[0.09, 1.52, 0.186]} size={[0.06, 0.07, 0.01]} radius={0.004} color="#17201e" shadow={false}/>
+    {hat === 'peci'
+      ? <RBox position={[0, 1.76, 0]} size={[0.36, 0.14, 0.34]} radius={0.03} color="#1b1d20" roughness={0.9}/>
+      : <><RBox position={[0, 1.74, 0]} size={[0.42, 0.12, 0.4]} radius={0.06} color="#c0392b"/><RBox position={[0, 1.7, 0.24]} size={[0.36, 0.03, 0.16]} radius={0.01} color="#c0392b"/></>}
+  </Group>
+}
+
+/** A small hanging lamp that lights up in the evening. */
+function CartLamp({ position, night }: { position: Vec3; night: boolean }) {
+  return <group position={position}>
+    <mesh><sphereGeometry args={[0.08, 12, 8]}/><meshStandardMaterial color="#fff2c4" emissive="#ffcc66" emissiveIntensity={night ? 2.2 : 0.1}/></mesh>
+    {night && <pointLight color="#ffc978" intensity={4} distance={4.5} decay={2}/>}
+  </group>
+}
+
+/** Gerobak bakso: pushcart with a glass case, a steaming dandang and plastic stools. */
+export function Gerobak({ position, rotation = 0, night = false }: { position: Vec3; rotation?: number; night?: boolean }) {
+  const sign = useMemo(() => signTexture('BAKSO', '#c62828', '#fff4d6', 'MALANG · MANTAP'), [])
   const steam = useRef<THREE.Group>(null)
   useFrame(({ clock }) => {
     if (!steam.current) return
@@ -241,30 +263,81 @@ export function Gerobak({ position, rotation = 0, kind }: { position: Vec3; rota
   })
   return <Group position={position} rotation={rotation}>
     {/* Cart body on two wheels, with push handles */}
-    <RBox position={[0, 0.72, 0]} size={[1.8, 0.8, 0.8]} radius={0.05} color={body} roughness={0.6}/>
-    <RBox position={[0, 0.34, 0]} size={[1.85, 0.06, 0.85]} radius={0.02} color={trim}/>
-    <RBox position={[0, 1.14, 0]} size={[1.85, 0.05, 0.85]} radius={0.02} color={trim}/>
+    <RBox position={[0, 0.72, 0]} size={[1.8, 0.8, 0.8]} radius={0.05} color="#f3efe4" roughness={0.6}/>
+    <RBox position={[0, 0.34, 0]} size={[1.85, 0.06, 0.85]} radius={0.02} color="#c62828"/>
+    <RBox position={[0, 1.14, 0]} size={[1.85, 0.05, 0.85]} radius={0.02} color="#c62828"/>
     <Wheel position={[-0.5, 0.3, 0.45]}/><Wheel position={[-0.5, 0.3, -0.45]}/>
     <Cyl position={[0.75, 0.15, 0]} radius={0.04} height={0.3} color="#2a2f33"/>
     <RBox position={[-1.15, 0.95, 0]} size={[0.5, 0.05, 0.05]} rotation={[0, 0, -0.35]} radius={0.02} color="#6b4a32"/>
-    {/* Glass display case with the goods */}
+    {/* Glass display case with the bakso */}
     <RBox position={[0.35, 1.45, 0]} size={[0.9, 0.55, 0.62]} radius={0.02} color="#d8f0f4" opacity={0.35} roughness={0.05}/>
-    {bakso
-      ? [0, 1, 2, 3, 4, 5].map((index) => <mesh key={index} position={[0.1 + (index % 3) * 0.22, 1.28, -0.12 + Math.floor(index / 3) * 0.22]}><sphereGeometry args={[0.07, 10, 8]}/><meshStandardMaterial color="#a98367" roughness={0.9}/></mesh>)
-      : [0, 1, 2, 3, 4].map((index) => <RBox key={index} position={[0.1 + (index % 3) * 0.22, 1.27, -0.1 + Math.floor(index / 3) * 0.2]} size={[0.14, 0.1, 0.12]} radius={0.03} color={index % 2 ? '#e8d9b0' : '#d9c089'}/>)}
+    {[0, 1, 2, 3, 4, 5].map((index) => <mesh key={index} position={[0.1 + (index % 3) * 0.22, 1.28, -0.12 + Math.floor(index / 3) * 0.22]}><sphereGeometry args={[0.07, 10, 8]}/><meshStandardMaterial color="#a98367" roughness={0.9}/></mesh>)}
     {/* Steaming pot (dandang) */}
     <Cyl position={[-0.45, 1.36, 0]} radius={0.25} height={0.4} color="#b9c0c4" metalness={0.75} roughness={0.25}/>
     <Cyl position={[-0.45, 1.58, 0]} radius={0.26} height={0.04} color="#9aa2a6" metalness={0.75} roughness={0.25}/>
     <group ref={steam} position={[-0.45, 0, 0]}>
       {[0, 1, 2].map((index) => <mesh key={index}><sphereGeometry args={[0.1, 10, 8]}/><meshStandardMaterial color="#ffffff" transparent opacity={0.4} depthWrite={false}/></mesh>)}
     </group>
-    {/* Roof with the painted sign */}
+    {/* Roof with the painted sign and a lamp for the evening */}
     {[[-0.85, -0.38], [0.85, -0.38], [-0.85, 0.38], [0.85, 0.38]].map(([x, z]) => <Cyl key={`${x}${z}`} position={[x, 1.75, z]} radius={0.025} height={1.2} color="#6b4a32"/>)}
-    <RBox position={[0, 2.38, 0]} size={[2.1, 0.08, 1.1]} radius={0.03} color={trim}/>
+    <RBox position={[0, 2.38, 0]} size={[2.1, 0.08, 1.1]} radius={0.03} color="#c62828"/>
     <mesh position={[0, 2.12, 0.42]}><planeGeometry args={[1.7, 0.53]}/><meshStandardMaterial map={sign} roughness={0.7}/></mesh>
     <mesh position={[0, 2.12, -0.42]} rotation={[0, Math.PI, 0]}><planeGeometry args={[1.7, 0.53]}/><meshStandardMaterial map={sign} roughness={0.7}/></mesh>
+    <CartLamp position={[0.2, 1.8, 0]} night={night}/>
     <PlasticStool position={[0.5, 0, 1.1]} color="#d64545"/>
     <PlasticStool position={[-0.3, 0, 1.2]} color="#3d7fd6"/>
+  </Group>
+}
+
+/** A thin rod between two points (bicycle frame, handlebar). */
+function Rod({ from, to, radius = 0.025, color }: { from: Vec3; to: Vec3; radius?: number; color: string }) {
+  const { position, quaternion, length } = useMemo(() => {
+    const start = new THREE.Vector3(...from)
+    const end = new THREE.Vector3(...to)
+    const direction = end.clone().sub(start)
+    return { position: start.add(end).multiplyScalar(0.5), quaternion: new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.clone().normalize()), length: direction.length() }
+  }, [from, to])
+  return <mesh position={position} quaternion={quaternion} castShadow>
+    <cylinderGeometry args={[radius, radius, length, 8]}/>
+    <meshStandardMaterial color={color} metalness={0.5} roughness={0.35}/>
+  </mesh>
+}
+
+function BikeWheel({ x }: { x: number }) {
+  return <group position={[x, 0.33, 0]}>
+    <mesh castShadow><torusGeometry args={[0.3, 0.035, 8, 28]}/><meshStandardMaterial color="#1f2326" roughness={0.8}/></mesh>
+    <mesh><torusGeometry args={[0.26, 0.012, 6, 28]}/><meshStandardMaterial color="#c9ced0" metalness={0.7} roughness={0.3}/></mesh>
+    {[0, 1, 2, 3].map((spoke) => <mesh key={spoke} rotation={[0, 0, (spoke / 4) * Math.PI]}><boxGeometry args={[0.52, 0.008, 0.008]}/><meshStandardMaterial color="#c9ced0" metalness={0.7}/></mesh>)}
+  </group>
+}
+
+/** Kopi keliling: a bicycle with a cooler box, thermoses and strings of coffee sachets. */
+export function KopiSepeda({ position, rotation = 0, night = false }: { position: Vec3; rotation?: number; night?: boolean }) {
+  const sign = useMemo(() => signTexture('KOPI', '#4a2c1d', '#ffe3b3', 'PANAS · ES · SACHET'), [])
+  const frame = '#1f6f5c'
+  const sachets = ['#6b3b1e', '#d64545', '#e2b33c', '#2c2c2c', '#b0703a', '#e8e1d0']
+  return <Group position={position} rotation={rotation}>
+    <BikeWheel x={-0.55}/><BikeWheel x={0.55}/>
+    <Rod from={[-0.55, 0.33, 0]} to={[-0.15, 0.36, 0]} color={frame}/>
+    <Rod from={[-0.15, 0.36, 0]} to={[-0.25, 0.9, 0]} color={frame}/>
+    <Rod from={[-0.25, 0.85, 0]} to={[0.42, 0.88, 0]} color={frame}/>
+    <Rod from={[-0.15, 0.36, 0]} to={[0.42, 0.88, 0]} color={frame}/>
+    <Rod from={[0.55, 0.33, 0]} to={[0.45, 1.05, 0]} color={frame}/>
+    <Rod from={[0.45, 1.05, -0.28]} to={[0.45, 1.05, 0.28]} radius={0.02} color="#2a2f33"/>
+    <Rod from={[-0.55, 0.33, 0]} to={[-0.25, 0.85, 0]} radius={0.018} color={frame}/>
+    <RBox position={[-0.27, 0.95, 0]} size={[0.26, 0.06, 0.14]} radius={0.03} color="#2a2f33"/>
+    <Rod from={[-0.15, 0.36, 0]} to={[-0.05, 0, 0.18]} radius={0.015} color="#8b9297"/>
+    {/* Rear rack: cooler box with the sign, thermoses on top */}
+    <RBox position={[-0.62, 0.78, 0]} size={[0.62, 0.05, 0.42]} radius={0.01} color="#8b9297" metalness={0.5}/>
+    <RBox position={[-0.62, 1.03, 0]} size={[0.58, 0.44, 0.44]} radius={0.04} color="#3d7fd6"/>
+    <mesh position={[-0.62, 1.03, 0.225]}><planeGeometry args={[0.54, 0.17]}/><meshStandardMaterial map={sign}/></mesh>
+    <mesh position={[-0.62, 1.03, -0.225]} rotation={[0, Math.PI, 0]}><planeGeometry args={[0.54, 0.17]}/><meshStandardMaterial map={sign}/></mesh>
+    <Cyl position={[-0.76, 1.42, 0.08]} radius={0.08} height={0.34} color="#c62828" roughness={0.4}/>
+    <Cyl position={[-0.5, 1.42, 0.08]} radius={0.08} height={0.34} color="#d9dde0" metalness={0.7} roughness={0.25}/>
+    <Cyl position={[-0.63, 1.38, -0.1]} radius={0.07} height={0.26} color="#f0f0ec"/>
+    {/* Renteng sachets hanging from the handlebar */}
+    {sachets.map((color, index) => <RBox key={index} position={[0.5, 0.78, -0.22 + index * 0.09]} size={[0.012, 0.46, 0.07]} radius={0.004} color={color} shadow={false}/>)}
+    <CartLamp position={[0.52, 1.18, 0]} night={night}/>
   </Group>
 }
 
@@ -275,10 +348,52 @@ export function Tree({ position, size = 1 }: { position: Vec3; size?: number }) 
   </Group>
 }
 
-export function StreetLamp({ position }: { position: Vec3 }) {
+export function StreetLamp({ position, night = false }: { position: Vec3; night?: boolean }) {
   return <Group position={position}>
     <Cyl position={[0, 1.6, 0]} radius={0.06} height={3.2} color="#2f3336" metalness={0.5}/>
     <RBox position={[0.35, 3.15, 0]} size={[0.8, 0.06, 0.06]} radius={0.02} color="#2f3336"/>
-    <RBox position={[0.7, 3.05, 0]} size={[0.3, 0.12, 0.2]} radius={0.04} color="#f5e6b8" emissive="#ffd98a" emissiveIntensity={0.8}/>
+    <RBox position={[0.7, 3.05, 0]} size={[0.3, 0.12, 0.2]} radius={0.04} color="#f5e6b8" emissive="#ffd98a" emissiveIntensity={night ? 2.5 : 0.2}/>
+    {night && <pointLight position={[0.7, 2.9, 0]} color="#ffd08a" intensity={10} distance={8} decay={2}/>}
+  </Group>
+}
+
+// ---------------------------------------------------------------------------
+// Lighting and climate
+
+/** Pendant lamp; switched on (with a warm point light) in the evening. */
+export function PendantLamp({ position, night }: { position: Vec3; night: boolean }) {
+  return <group position={position}>
+    <Cyl position={[0, 0.35, 0]} radius={0.008} height={0.7} color="#2a2f33"/>
+    <mesh position={[0, 0, 0]} castShadow={false}>
+      <coneGeometry args={[0.3, 0.22, 20, 1, true]}/>
+      <meshStandardMaterial color="#2f3a44" side={THREE.DoubleSide} roughness={0.5} metalness={0.3}/>
+    </mesh>
+    <mesh position={[0, -0.08, 0]}><sphereGeometry args={[0.09, 12, 8]}/><meshStandardMaterial color="#fff6dc" emissive="#ffd48a" emissiveIntensity={night ? 3 : 0.05}/></mesh>
+    {night && <pointLight position={[0, -0.25, 0]} color="#ffd9a0" intensity={9} distance={7} decay={2}/>}
+  </group>
+}
+
+/** Wall-mounted split AC with a gently swinging louvre. */
+export function AirConditioner({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  const louvre = useRef<THREE.Mesh>(null)
+  useFrame(({ clock }) => { if (louvre.current) louvre.current.rotation.x = 0.5 + Math.sin(clock.elapsedTime * 0.6) * 0.25 })
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 0, 0.13]} size={[1.05, 0.32, 0.24]} radius={0.06} color="#f6f7f5" roughness={0.35}/>
+    <RBox position={[0, -0.03, 0.255]} size={[0.95, 0.02, 0.01]} radius={0.004} color="#dfe3e4" shadow={false}/>
+    <mesh ref={louvre} position={[0, -0.14, 0.24]}><boxGeometry args={[0.9, 0.012, 0.08]}/><meshStandardMaterial color="#e3e6e6"/></mesh>
+    <mesh position={[0.4, 0.07, 0.256]}><circleGeometry args={[0.012, 10]}/><meshStandardMaterial color="#6cf08a" emissive="#4be07a" emissiveIntensity={1.2}/></mesh>
+    <Cyl position={[-0.46, -0.3, 0.06]} radius={0.02} height={0.35} color="#e6e8e6"/>
+  </Group>
+}
+
+/** The AC's outdoor unit, with a slowly spinning fan. */
+export function AcOutdoorUnit({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  const fan = useRef<THREE.Group>(null)
+  useFrame((_, delta) => { if (fan.current) fan.current.rotation.z -= delta * 6 })
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 0.34, 0]} size={[0.85, 0.6, 0.32]} radius={0.03} color="#e9ebe8" roughness={0.45}/>
+    <mesh position={[-0.12, 0.34, 0.165]}><circleGeometry args={[0.22, 24]}/><meshStandardMaterial color="#3a4046"/></mesh>
+    <group ref={fan} position={[-0.12, 0.34, 0.17]}>{[0, 1, 2].map((blade) => <mesh key={blade} rotation={[0, 0, (blade / 3) * Math.PI * 2]}><boxGeometry args={[0.04, 0.36, 0.005]}/><meshStandardMaterial color="#9aa2a6"/></mesh>)}</group>
+    <RBox position={[0, 0.02, 0]} size={[0.9, 0.04, 0.36]} radius={0.01} color="#8b9297"/>
   </Group>
 }

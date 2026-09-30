@@ -8,7 +8,7 @@ import type { OfficeStation } from './types.ts'
 //        │ spare desks      │  armchairs  pantry│
 //        │ meeting table    │       galon, fridge│
 //   z  4 └── low front wall ─── entrance ───────┘
-//        sidewalk · gerobak bakso & somay · flag
+//        sidewalk · gerobak bakso · kopi keliling (bicycle) · flag
 //        road
 
 export type Vec3 = [number, number, number]
@@ -29,8 +29,16 @@ export const MEETING_SEATS: Vec3[] = [[-6.6, 0, 2.2], [-3.8, 0, 2.2], [-5.2, 0, 
 export const SOFA: Vec3 = [4.6, 0, -4]
 export const LOUNGE_SEATS: Vec3[] = [[4, 0, -3.55], [2.5, 0, -1.9], [6.7, 0, -1.9]]
 export const COFFEE_TABLE: Vec3 = [5, 0, -2.5]
+/** Gap in the low front wall, and the walking line along the street edge of the sidewalk (in front of the carts). */
+export const ENTRANCE_X = 5.8
+export const SIDEWALK_Z = 8.9
+/** Lounge agents step to this lane first, so they pass between the armchair and the TV. */
+export const LOUNGE_LANE_X = 3.1
+export const BAKSO_CART: Vec3 = [-3.5, 0, 7.4]
+export const KOPI_BIKE: Vec3 = [1.2, 0, 7.5]
+export const FLAG: Vec3 = [8.4, 0, 5.6]
 
-export const CAMERA_TARGET: Vec3 = [0.4, 0.6, 1.6]
+export const CAMERA_TARGET: Vec3 = [0.4, 0.6, 2.4]
 export const CAMERA_OFFSET: Vec3 = [-3.2, 12.5, 15.5]
 /** How far the view may be panned (camera target bounds), so the office never leaves the screen. */
 export const PAN_BOUNDS = { minX: -12, maxX: 12, minZ: -7, maxZ: 11 }
@@ -60,19 +68,69 @@ export function placementFor(station: OfficeStation): Placement {
   return { position: [x, y, z - 0.75], facing: 0, seated: station.state === 'Working' || station.state === 'Reviewing' }
 }
 
+const outside = (z: number) => z > BUILDING.maxZ
+const inLounge = ([x, z]: [number, number]) => x > 1.5 && x < 7.8 && z < -0.6
+
 /**
- * Waypoints from one spot to another via the aisle, so agents walk around desks and tables
- * instead of through them. The last point is always the destination.
+ * Waypoints from one spot to another, so agents walk around furniture instead of through it:
+ * inside along the aisle (lounge spots via the lounge lane), and in or out through the entrance
+ * to the sidewalk. The last point is always the destination.
  */
 export function walkPath(from: [number, number], to: [number, number]): [number, number][] {
-  const [fromX, fromZ] = from
-  const [toX, toZ] = to
-  if (Math.hypot(toX - fromX, toZ - fromZ) < 0.3) return [to]
+  if (Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.3) return [to]
+  const route: [number, number][] = [from]
+  const toAisle = (point: [number, number]): [number, number][] => inLounge(point) ? [[LOUNGE_LANE_X, point[1]], [LOUNGE_LANE_X, AISLE_Z]] : [[point[0], AISLE_Z]]
+  if (!outside(from[1]) && !outside(to[1])) {
+    route.push(...toAisle(from), ...toAisle(to).reverse())
+  } else if (outside(from[1]) && outside(to[1])) {
+    route.push([from[0], SIDEWALK_Z], [to[0], SIDEWALK_Z])
+  } else if (outside(to[1])) {
+    route.push(...toAisle(from), [ENTRANCE_X, AISLE_Z], [ENTRANCE_X, SIDEWALK_Z], [to[0], SIDEWALK_Z])
+  } else {
+    route.push([from[0], SIDEWALK_Z], [ENTRANCE_X, SIDEWALK_Z], [ENTRANCE_X, AISLE_Z], ...toAisle(to).reverse())
+  }
+  route.push(to)
+  // Drop the start and any waypoint that does not move the agent somewhere new.
   const path: [number, number][] = []
-  if (Math.abs(fromZ - AISLE_Z) > 0.2) path.push([fromX, AISLE_Z])
-  if (Math.abs(fromX - toX) > 0.2) path.push([toX, AISLE_Z])
-  path.push(to)
+  let last = from
+  for (const point of route.slice(1)) {
+    if (Math.hypot(point[0] - last[0], point[1] - last[1]) > 0.2) { path.push(point); last = point }
+  }
+  if (path.length === 0 || path[path.length - 1] !== to) path.push(to)
   return path
+}
+
+export interface IdleStop { key: string; label: string; spots: Placement[] }
+const spot = (x: number, z: number, facing: number, seated = false): Placement => ({ position: [x, 0, z], facing, seated })
+const LOUNGE_FACING = [0, Math.PI / 2, -Math.PI / 2]
+
+/**
+ * Where idle agents spend their time. Each stop has one spot per seat, so agents that happen to
+ * pick the same stop never stand in each other.
+ */
+export const IDLE_STOPS: IdleStop[] = [
+  { key: 'lounge', label: 'Santai di lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
+  { key: 'galon', label: 'Ambil air galon', spots: [spot(8.35, -0.4, Math.PI / 2), spot(8.2, -1.05, 2.2), spot(8.2, 0.3, 1.1)] },
+  // On the gerobak's plastic stools, street side, facing the cart.
+  { key: 'bakso', label: 'Makan bakso', spots: [spot(BAKSO_CART[0] + 0.5, BAKSO_CART[2] + 1.1, Math.PI, true), spot(BAKSO_CART[0] - 0.3, BAKSO_CART[2] + 1.2, Math.PI, true), spot(BAKSO_CART[0] + 1.3, BAKSO_CART[2] + 0.9, -2.4)] },
+  { key: 'dapur', label: 'Ke dapur', spots: [spot(8.25, 2.6, Math.PI / 2), spot(8.3, 0.65, Math.PI / 2), spot(8.25, 3.3, Math.PI / 2)] },
+  { key: 'kopi', label: 'Ngopi di kopi keliling', spots: [spot(KOPI_BIKE[0] - 0.5, KOPI_BIKE[2] + 0.85, Math.PI), spot(KOPI_BIKE[0] + 0.5, KOPI_BIKE[2] + 0.85, Math.PI), spot(KOPI_BIKE[0] + 1.45, KOPI_BIKE[2] + 0.3, -Math.PI / 2)] },
+  { key: 'jalan', label: 'Jalan-jalan', spots: [spot(FLAG[0] - 0.8, FLAG[2] + 0.3, Math.PI / 2), spot(BUILDING.minX + 0.95, -0.9, -Math.PI / 2), spot(1.3, -4.4, Math.PI)] },
+]
+/** How long an idle agent stays at one stop (walking included). */
+export const IDLE_STOP_MS = 24_000
+const IDLE_ROUTE = ['lounge', 'galon', 'lounge', 'bakso', 'jalan', 'lounge', 'kopi', 'dapur']
+
+/**
+ * The stop an idle agent is at, at a given time. Purely decorative and deterministic: it depends
+ * only on the clock and the seat, never on agent data, and seats start at different points of
+ * the route so the crew spreads out.
+ */
+export function idleStop(seat: number, time: number): { stop: IdleStop; placement: Placement } {
+  const index = Math.min(Math.max(seat, 1), 3) - 1
+  const step = Math.floor(time / IDLE_STOP_MS) + index * 3
+  const stop = IDLE_STOPS.find((item) => item.key === IDLE_ROUTE[step % IDLE_ROUTE.length]) ?? IDLE_STOPS[0]
+  return { stop, placement: stop.spots[index] }
 }
 
 /** Keeps a panned camera target inside the office grounds. */

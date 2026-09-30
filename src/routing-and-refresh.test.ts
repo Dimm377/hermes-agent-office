@@ -4,11 +4,12 @@ import { mergeRefresh } from './request-state.ts'
 import { navigation, pageFromHash, pageSlug } from './routes.ts'
 
 describe('hash routing', () => {
-  it('round-trips every page and falls back to Dashboard', () => {
+  it('round-trips every page and falls back to the Office home', () => {
     for (const page of navigation) expect(pageFromHash(`#/${pageSlug(page)}`)).toBe(page)
     expect(pageFromHash('#/task-board')).toBe('Task Board')
-    expect(pageFromHash('#dashboard')).toBe('Dashboard')
-    expect(pageFromHash('#/nope')).toBe('Dashboard')
+    expect(pageFromHash('#dashboard')).toBe('Office')
+    expect(pageFromHash('')).toBe('Office')
+    expect(pageFromHash('#/nope')).toBe('Office')
     expect(navigation).toContain('Logs')
     expect(pageFromHash('#/knowledge')).toBe('Memory')
     expect(pageFromHash('#/folders/leadengineer')).toBe('Folders')

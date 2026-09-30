@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, DESKS, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, clampTarget, placementFor, walkPath } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -28,12 +28,39 @@ describe('3D office placement', () => {
 
 describe('3D office movement', () => {
   it('walks via the aisle instead of through desks', () => {
-    expect(walkPath([-7.2, -4.25], [4, -3.55])).toEqual([[-7.2, AISLE_Z], [4, AISLE_Z], [4, -3.55]])
+    expect(walkPath([-7.2, -4.25], [-2, -4.25])).toEqual([[-7.2, AISLE_Z], [-2, AISLE_Z], [-2, -4.25]])
+    // Lounge spots are reached via the lounge lane, past the TV cabinet.
+    expect(walkPath([-7.2, -4.25], [4, -3.55])).toEqual([[-7.2, AISLE_Z], [LOUNGE_LANE_X, AISLE_Z], [LOUNGE_LANE_X, -3.55], [4, -3.55]])
     expect(walkPath([1, 1], [1.1, 1.1])).toEqual([[1.1, 1.1]])
   })
 
   it('keeps the panned view inside the grounds', () => {
     expect(clampTarget(100, -100)).toEqual([PAN_BOUNDS.maxX, PAN_BOUNDS.minZ])
     expect(clampTarget(1, 2)).toEqual([1, 2])
+  })
+})
+
+describe('idle agents', () => {
+  it('leave and enter the building through the entrance', () => {
+    const out = walkPath([4, -3.55], [-4, 6.3])
+    expect(out).toContainEqual([ENTRANCE_X, AISLE_Z])
+    expect(out).toContainEqual([ENTRANCE_X, SIDEWALK_Z])
+    expect(out.at(-1)).toEqual([-4, 6.3])
+    const back = walkPath([-4, 6.3], [8.35, -0.4])
+    expect(back).toContainEqual([ENTRANCE_X, SIDEWALK_Z])
+    expect(back.findIndex(([x, z]) => x === ENTRANCE_X && z === SIDEWALK_Z)).toBeLessThan(back.findIndex(([x, z]) => x === ENTRANCE_X && z === AISLE_Z))
+    // Every waypoint outside is on the sidewalk side, never through the front wall.
+    for (const [x, z] of out) if (z > BUILDING.maxZ - 0.3 && z < BUILDING.maxZ + 0.3) expect(x).toBe(ENTRANCE_X)
+  })
+
+  it('rotate between stops over time, each seat on its own spot', () => {
+    const seen = new Set<string>()
+    for (let step = 0; step < 8; step += 1) seen.add(idleStop(1, step * IDLE_STOP_MS).stop.key)
+    expect(seen).toEqual(new Set(IDLE_STOPS.map((stop) => stop.key)))
+    for (let step = 0; step < 8; step += 1) {
+      const spots = [1, 2, 3].map((seat) => idleStop(seat, step * IDLE_STOP_MS).placement.position.join(','))
+      expect(new Set(spots).size).toBe(3)
+    }
+    expect(idleStop(1, 5)).toEqual(idleStop(1, IDLE_STOP_MS - 1))
   })
 })

@@ -1,8 +1,11 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { officeStateBadge } from '../office-state.ts'
 import { usePolling } from '../polling.ts'
-import type { ActivitySnapshot, ChannelSnapshot, OfficeRoom, OfficeSnapshot, OfficeStation } from '../types.ts'
+import { formatDateTime } from '../format.ts'
+import type { Page } from '../routes.ts'
+import type { ActivitySnapshot, ChannelSnapshot, DashboardSnapshot, OfficeRoom, OfficeSnapshot, OfficeStation } from '../types.ts'
 import { LoadingState, SourceStatus } from '../ui.tsx'
+import { Stats } from './Stats.tsx'
 
 // The 3D view (three.js) is only downloaded when someone switches to it.
 const Office3D = lazy(() => import('./Office3D.tsx'))
@@ -17,8 +20,19 @@ function webglAvailable(): boolean {
   }
 }
 
+/** 3D unless the viewer chose 2D before (or the browser has no WebGL, handled by the caller). */
 function storedView(): OfficeView {
-  try { return window.localStorage.getItem('mc.officeView') === '3d' ? '3d' : '2d' } catch { return '2d' }
+  try { return window.localStorage.getItem('mc.officeView') === '2d' ? '2d' : '3d' } catch { return '3d' }
+}
+
+type PanelTab = 'Crew' | 'Stats' | 'Activity'
+const PANEL_TABS: PanelTab[] = ['Crew', 'Stats', 'Activity']
+
+function storedPanel(): PanelTab | undefined {
+  try {
+    const value = window.localStorage.getItem('mc.officePanel')
+    return PANEL_TABS.find((tab) => tab === value)
+  } catch { return undefined }
 }
 
 class SceneBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
@@ -64,9 +78,28 @@ export function OfficeDetail({ station, onClose }: { station: OfficeStation; onC
   </div>
 }
 
-const officeHeading = <section className="page-title office-title"><p className="eyebrow">VISUAL OFFICE / READ-ONLY</p><h1>Office</h1><p>Declared stations show only attributable work. Select a character or desk for its evidence and freshness.</p></section>
+interface HudItem { label: string; value: string; tone?: 'warn' | 'bad'; page?: Page; title?: string }
 
-export function Office() {
+/** The few numbers worth seeing at a glance, over the office like a game HUD. */
+function hudItems(office: OfficeSnapshot | undefined, dashboard: DashboardSnapshot | null | undefined): HudItem[] {
+  const summary = office?.summary ?? dashboard?.office
+  const items: HudItem[] = []
+  if (summary) {
+    items.push({ label: 'Crew active', value: `${summary.active}/${summary.declared}`, title: `${summary.idle} idle · ${summary.offline} offline · ${summary.unknown} unknown` })
+    items.push({ label: 'Gateways', value: `${summary.gatewaysReachable}/${summary.gatewaysDeclared}`, tone: summary.gatewaysReachable < summary.gatewaysDeclared ? 'warn' : undefined, page: 'Agents' })
+  }
+  if (!dashboard) return items
+  const { tasks, calendar, commands } = dashboard
+  if (tasks.availability === 'available') {
+    const open = Object.entries(tasks.byStatus).filter(([status]) => !['done', 'archived'].includes(status)).reduce((sum, [, count]) => sum + count, 0)
+    items.push({ label: 'Tasks', value: `${tasks.byStatus.running ?? 0} running · ${open} open`, page: 'Task Board' })
+  } else items.push({ label: 'Tasks', value: 'Not Available', tone: 'warn', page: 'Task Board' })
+  if (calendar.availability === 'available') items.push({ label: 'Next cron', value: calendar.nextRun ? formatDateTime(calendar.nextRun) : '—', page: 'Calendar' })
+  if (commands.failed > 0) items.push({ label: 'CLI errors', value: String(commands.failed), tone: 'bad', page: 'Logs' })
+  return items
+}
+
+export function Office({ dashboard, dashboardPending = false, onNavigate }: { dashboard?: DashboardSnapshot | null; dashboardPending?: boolean; onNavigate?: (page: Page) => void } = {}) {
   const snapshot = usePolling<OfficeSnapshot>('/api/office', 10_000)
   const activitySnapshot = usePolling<ActivitySnapshot>('/api/activity', 15_000)
   const channelsSnapshot = usePolling<ChannelSnapshot>('/api/channels', 30_000)
@@ -78,6 +111,11 @@ export function Office() {
   const [chosenRoom, setChosenRoom] = useState<OfficeRoom | undefined>()
   const [view, setView] = useState<OfficeView>(() => typeof window === 'undefined' ? '2d' : storedView())
   const [webgl] = useState(() => typeof document === 'undefined' || webglAvailable())
+  const [panel, setPanel] = useState<PanelTab | undefined>(() => typeof window === 'undefined' ? undefined : storedPanel())
+  const choosePanel = (next: PanelTab | undefined) => {
+    setPanel(next)
+    try { window.localStorage.setItem('mc.officePanel', next ?? 'closed') } catch { /* storage may be blocked */ }
+  }
   const chooseView = (next: OfficeView) => {
     setView(next)
     try { window.localStorage.setItem('mc.officeView', next) } catch { /* storage may be blocked */ }
@@ -96,25 +134,43 @@ export function Office() {
     setSelectedName(undefined)
     selectedTrigger.current?.focus()
   }
-  if (snapshot.status === 'pending') return <>{officeHeading}<LoadingState message="Reading office state..."/></>
-  return <>{officeHeading}
-    <SourceStatus source={office ? { availability: 'available', data: null } : undefined} fetchedAt={office?.fetchedAt} request={snapshot}/>
-    <section className="office-dashboard" aria-label="Visual Office">
-      <div className="office-main"><div className="office-toolbar"><div className="view-toggle" role="group" aria-label="Office view">{(['2d', '3d'] as const).map((item) => <button type="button" key={item} className={view === item ? 'active' : ''} aria-pressed={view === item} onClick={() => chooseView(item)} disabled={item === '3d' && !webgl} title={item === '3d' && !webgl ? 'WebGL is not available in this browser' : undefined}>{item.toUpperCase()}</button>)}</div>{view === '3d' && !webgl && <small className="muted">3D needs WebGL, which this browser does not provide. Showing 2D.</small>}{show3d && <small className="muted">Drag to rotate · right-drag, two fingers or Geser to pan · scroll to zoom · click an agent for details</small>}</div>
-        {show3d ? <SceneBoundary fallback={<section className="empty-state"><h2>3D view unavailable</h2><p>The 3D office could not start on this device. Switch back to 2D.</p></section>}><Suspense fallback={<LoadingState message="Loading the 3D office..."/>}><Office3D stations={office?.stations ?? []} onSelect={select3d}/></Suspense></SceneBoundary> : <><div className="room-tabs" role="tablist" aria-label="Office rooms">{ROOMS.map((item) => <button role="tab" aria-selected={room === item} className={room === item ? 'active' : ''} onClick={() => setChosenRoom(item)} key={item}>{item} <span className="room-count">{counts[item]}</span></button>)}</div>
+  if (snapshot.status === 'pending') return <LoadingState message="Reading office state..."/>
+  const hud = hudItems(office, dashboard)
+  const stationButton = (station: OfficeStation) => { const badge = officeStateBadge(station.state); return <button type="button" className="crew-row" key={station.name} onClick={(event) => { selectedTrigger.current = event.currentTarget; setSelectedName(station.name) }} aria-label={`Details for ${station.name}: ${officeStateLabel(station)}`}><PixelCharacter avatar={station.avatar}/><span><strong>{station.name}</strong><small>{station.activity || station.workstation}</small></span><span className={`badge ${badge.tone}`}>{station.state}</span></button> }
+  return <section className={`office-stage view-${show3d ? '3d' : '2d'}`} aria-label="Visual Office">
+    <div className="office-hud" role="list" aria-label="Key statistics">{hud.map((item) => { const body = <><span>{item.label}</span><b>{item.value}</b></>; return <div role="listitem" key={item.label}>{item.page && onNavigate ? <button type="button" className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title ?? `Open ${item.page}`} onClick={() => onNavigate(item.page!)}>{body}</button> : <span className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title}>{body}</span>}</div> })}</div>
+    <div className="office-stage-tools">
+      <div className="view-toggle" role="group" aria-label="Office view">{(['2d', '3d'] as const).map((item) => <button type="button" key={item} className={view === item ? 'active' : ''} aria-pressed={view === item} onClick={() => chooseView(item)} disabled={item === '3d' && !webgl} title={item === '3d' && !webgl ? 'WebGL is not available in this browser' : undefined}>{item.toUpperCase()}</button>)}</div>
+      <button type="button" className={`panel-toggle${panel ? ' active' : ''}`} aria-expanded={Boolean(panel)} aria-controls="office-panel" onClick={() => choosePanel(panel ? undefined : 'Crew')}>▤ Panel</button>
+    </div>
+    <div className="office-canvas">
+      {show3d ? <SceneBoundary fallback={<section className="empty-state"><h2>3D view unavailable</h2><p>The 3D office could not start on this device. Switch back to 2D.</p></section>}><Suspense fallback={<LoadingState message="Loading the 3D office..."/>}><Office3D stations={office?.stations ?? []} onSelect={select3d}/></Suspense></SceneBoundary> : <>{view === '3d' && !webgl && <p className="muted office-note">3D needs WebGL, which this browser does not provide. Showing 2D.</p>}<div className="room-tabs" role="tablist" aria-label="Office rooms">{ROOMS.map((item) => <button role="tab" aria-selected={room === item} className={room === item ? 'active' : ''} onClick={() => setChosenRoom(item)} key={item}>{item} <span className="room-count">{counts[item]}</span></button>)}</div>
         <div className="room-scroll"><section className={`pixel-room ${room.toLowerCase()}`} aria-label={`${room} room`}><div className="room-label"><span>{room}</span><small>{room === 'Workspace' ? 'DESKS + COLLABORATION' : 'QUIET BREAK AREA'}</small></div><div className="pixel-window window-one" aria-hidden="true"/><div className="pixel-window window-two" aria-hidden="true"/><div className="pixel-door" aria-hidden="true"/>
           {room === 'Workspace' ? <><div className="pixel-shelf" aria-hidden="true"/><div className="pixel-plant plant-one" aria-hidden="true"/><div className="meeting-table" aria-hidden="true"><span>MEET</span></div>
             {desks.map((desk) => <div className={`ws-desk desk-${desk.seat}${desk.occupied ? ' occupied' : ''}`} key={desk.seat} aria-hidden="true"><i/><span className="desk-plate">{desk.workstation}</span></div>)}</> : <><div className="lounge-sofa" aria-hidden="true"/><div className="lounge-chair chair-one" aria-hidden="true"/><div className="lounge-chair chair-two" aria-hidden="true"/><div className="coffee-table" aria-hidden="true"/><div className="pixel-tv" aria-hidden="true"/><div className="pixel-plant plant-two" aria-hidden="true"/></>}
           {stations.map((station) => { const badge = officeStateBadge(station.state); const busy = ['Working', 'Reviewing', 'Collaborating'].includes(station.state); return <button className={`pixel-station ${station.roomPosition} seat-${station.seat} state-${station.state.toLowerCase()}`} key={station.name} onClick={(event) => { selectedTrigger.current = event.currentTarget; setSelectedName(station.name) }} aria-label={`${station.name}. ${officeStateLabel(station)}${station.activity ? `: ${station.activity}` : ''}. Open station details.`} title={station.activity || officeStateLabel(station)}>{busy && station.activity && <span className="speech" aria-hidden="true">{station.activity}</span>}<span className="pixel-station-name">{station.name}</span><span className={`badge ${badge.tone}`}>{officeStateLabel(station)}</span>{station.state === 'Unknown' && <span className="neutral-label">NEUTRAL PRESENCE</span>}<PixelCharacter avatar={station.avatar}/></button> })}
           {room === 'Lounge' && stations.length === 0 && <p className="room-empty">No declared idle presence</p>}
           {room === 'Workspace' && stations.length === 0 && office && <p className="room-empty">Desks are empty · crew is in the Lounge</p>}
-        </section></div><p className="room-hint">Swipe sideways to see the whole room →</p></>}</div>
-      <aside className="office-side"><section className="office-summary"><p className="eyebrow">CREW SNAPSHOT</p><strong>{office?.summary.active ?? 0} active work</strong><span>{office?.summary.idle ?? 0} Idle (managed)</span><span>{office?.summary.unknown ?? 0} Unknown / {office?.summary.offline ?? 0} Offline</span><hr/><span>Gateways running: {office ? `${office.summary.gatewaysReachable} of ${office.summary.gatewaysDeclared}` : 'Not Available'}</span></section>
-        <section className="office-feed"><p className="eyebrow">LIVE ACTIVITY</p><h2>Unattributed sessions</h2>{sessions?.availability === 'unavailable' ? <p>Not Available</p> : !sessions ? <p>Loading read-only metadata...</p> : sessions.data.length === 0 ? <p>No session metadata available.</p> : sessions.data.slice(0, 3).map((session) => <article key={session.id ?? session.title}><strong>{session.title}</strong><span>{session.lastActive}</span></article>)}<small>Generic session metadata never changes crew state.</small></section>
-        <section className="office-feed"><p className="eyebrow">CHANNELS</p><h2>Messaging platforms</h2>{channelSource?.availability === 'unavailable' ? <p>Not Available</p> : !channelSource ? <p>Loading safe status...</p> : channelSource.data.length === 0 ? <p>No configured channels.</p> : channelSource.data.map((channel) => <article key={channel.name}><strong>{channel.name}</strong><span>{channel.status}</span></article>)}{channels?.activeSessions !== undefined && <small>{channels.activeSessions} active session{channels.activeSessions === 1 ? '' : 's'}</small>}</section>
-      </aside>
-    </section>
-    {snapshot.status === 'failed' && <section className="empty-state"><h2>Not Available</h2><p>The office source could not be reached.</p></section>}
+        </section></div><p className="room-hint">Swipe sideways to see the whole room →</p></>}
+      {snapshot.status === 'failed' && <section className="empty-state office-failed"><h2>Not Available</h2><p>The office source could not be reached.</p></section>}
+    </div>
+    {show3d && <small className="office-3d-hint">Drag to rotate · right-drag, two fingers or Geser to pan · scroll to zoom · click an agent for details</small>}
+    {panel && <aside id="office-panel" className="office-panel" aria-label="Office panel" onKeyDown={(event) => { if (event.key === 'Escape' && !selected) { event.stopPropagation(); choosePanel(undefined) } }}>
+      <div className="office-panel-head"><div className="panel-tabs" role="tablist" aria-label="Panel">{PANEL_TABS.map((tab) => <button type="button" role="tab" key={tab} aria-selected={panel === tab} className={panel === tab ? 'active' : ''} onClick={() => choosePanel(tab)}>{tab}</button>)}</div><button type="button" className="icon-button" onClick={() => choosePanel(undefined)} aria-label="Close panel">✕</button></div>
+      <div className="office-panel-body" role="tabpanel" aria-label={panel}>
+        {panel === 'Crew' && <>
+          <SourceStatus source={office ? { availability: 'available', data: null } : undefined} fetchedAt={office?.fetchedAt} request={snapshot}/>
+          <section className="office-summary"><p className="eyebrow">CREW SNAPSHOT</p><strong>{office?.summary.active ?? 0} active work</strong><span>{office?.summary.idle ?? 0} Idle (managed)</span><span>{office?.summary.unknown ?? 0} Unknown / {office?.summary.offline ?? 0} Offline</span><hr/><span>Gateways running: {office ? `${office.summary.gatewaysReachable} of ${office.summary.gatewaysDeclared}` : 'Not Available'}</span></section>
+          <div className="crew-list">{office?.stations.map(stationButton)}</div>
+          <small className="muted">Stations show only attributable work. Select one for its evidence and freshness.</small>
+        </>}
+        {panel === 'Stats' && <Stats dashboard={dashboard ?? null} pending={dashboardPending} onNavigate={onNavigate}/>}
+        {panel === 'Activity' && <>
+          <section className="office-feed"><p className="eyebrow">LIVE ACTIVITY</p><h2>Unattributed sessions</h2>{sessions?.availability === 'unavailable' ? <p>Not Available</p> : !sessions ? <p>Loading read-only metadata...</p> : sessions.data.length === 0 ? <p>No session metadata available.</p> : sessions.data.slice(0, 5).map((session) => <article key={session.id ?? session.title}><strong>{session.title}</strong><span>{session.lastActive}</span></article>)}<small>Generic session metadata never changes crew state.</small></section>
+          <section className="office-feed"><p className="eyebrow">CHANNELS</p><h2>Messaging platforms</h2>{channelSource?.availability === 'unavailable' ? <p>Not Available</p> : !channelSource ? <p>Loading safe status...</p> : channelSource.data.length === 0 ? <p>No configured channels.</p> : channelSource.data.map((channel) => <article key={channel.name}><strong>{channel.name}</strong><span>{channel.status}</span></article>)}{channels?.activeSessions !== undefined && <small>{channels.activeSessions} active session{channels.activeSessions === 1 ? '' : 's'}</small>}</section>
+        </>}
+      </div>
+    </aside>}
     {selected && <OfficeDetail station={selected} onClose={closeDetail}/>}
-  </>
+  </section>
 }

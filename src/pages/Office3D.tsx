@@ -3,7 +3,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { officeStateBadge } from '../office-state.ts'
-import { CAMERA_OFFSET, CAMERA_TARGET, DESKS, PALETTE, SKIN, clampTarget, placementFor, walkPath, type Placement, type Vec3 } from '../office3d-layout.ts'
+import { CAMERA_OFFSET, CAMERA_TARGET, DESKS, PALETTE, SKIN, clampTarget, idleStop, placementFor, walkPath, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { Environment } from '../scene3d/environment.tsx'
 import { RBox, WorkDesk } from '../scene3d/props.tsx'
 import type { OfficeStation } from '../types.ts'
@@ -150,8 +150,9 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
   const frame = useMemo(() => () => {
     const aspect = size.width / Math.max(size.height, 1)
     const offset = new THREE.Vector3(...CAMERA_OFFSET)
-    offset.setLength(offset.length() * Math.max(1, 1.5 / aspect))
-    const focus = target.clone().set(CAMERA_TARGET[0], aspect < 1 ? 2.2 : CAMERA_TARGET[1], CAMERA_TARGET[2])
+    // Narrow (portrait) views need to back off so the whole building fits across.
+    offset.setLength(offset.length() * Math.max(1, 1.2 / aspect))
+    const focus = target.clone().set(CAMERA_TARGET[0], CAMERA_TARGET[1], aspect < 1 ? 0.8 : CAMERA_TARGET[2])
     const orbit = controls.current
     // An undamped update applies and clears any momentum left from an earlier drag,
     // so it has to happen before the camera is placed, not after.
@@ -213,6 +214,16 @@ function register<T>(registry: Registry<T>, key: string) {
   return (value: T | null) => { if (value) registry.current.set(key, value); else registry.current.delete(key) }
 }
 
+/** Current time, refreshed every `interval` ms. */
+function useClock(interval: number) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), interval)
+    return () => window.clearInterval(timer)
+  }, [interval])
+  return now
+}
+
 function useThemeName(): 'dark' | 'light' {
   const read = () => (document.documentElement.dataset.theme === 'light' ? 'light' : 'dark')
   const [theme, setTheme] = useState<'dark' | 'light'>(read)
@@ -224,14 +235,15 @@ function useThemeName(): 'dark' | 'light' {
   return theme
 }
 
+/** Day in the light theme; evening in the dark theme, when the lamps in the scene switch on. */
 function Lighting({ theme }: { theme: 'dark' | 'light' }) {
   const day = theme === 'light'
   return <>
-    <color attach="background" args={[day ? '#bfe0ef' : '#26344a']}/>
-    <fog attach="fog" args={[day ? '#bfe0ef' : '#26344a', 38, 75]}/>
-    <hemisphereLight args={[day ? '#fff4e0' : '#9fb6d8', day ? '#5d7a4c' : '#2a3326', day ? 1.1 : 0.45]}/>
-    <directionalLight position={[10, 16, 9]} intensity={day ? 2.4 : 1.3} color={day ? '#fff1d6' : '#ff9d5c'} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-16} shadow-camera-right={16} shadow-camera-top={16} shadow-camera-bottom={-16} shadow-camera-far={60}/>
-    <ambientLight intensity={day ? 0.35 : 0.18} color={day ? '#ffffff' : '#8fa4d8'}/>
+    <color attach="background" args={[day ? '#bfe0ef' : '#1a2335']}/>
+    <fog attach="fog" args={[day ? '#bfe0ef' : '#1a2335', 38, 75]}/>
+    <hemisphereLight args={[day ? '#fff4e0' : '#7f95bd', day ? '#5d7a4c' : '#1e2620', day ? 1.1 : 0.32]}/>
+    <directionalLight position={[10, 16, 9]} intensity={day ? 2.4 : 0.75} color={day ? '#fff1d6' : '#ff9a5a'} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-16} shadow-camera-right={16} shadow-camera-top={16} shadow-camera-bottom={-16} shadow-camera-far={60}/>
+    <ambientLight intensity={day ? 0.35 : 0.14} color={day ? '#ffffff' : '#8fa4d8'}/>
   </>
 }
 
@@ -242,17 +254,20 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const [panMode, setPanMode] = useState(false)
   const [keyTarget, setKeyTarget] = useState<HTMLElement | null>(null)
   const theme = useThemeName()
+  const now = useClock(2000)
+  // Idle agents wander between the lounge, the pantry and the street food (decorative only).
+  const wandering = (station: OfficeStation) => station.state === 'Idle' && station.room === 'Lounge' ? idleStop(station.seat, now) : undefined
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
   const workstations = new Map(stations.map((station) => [station.seat, station.workstation]))
   return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused.">
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }}>
       <Lighting theme={theme}/>
-      <Environment/>
+      <Environment night={theme === 'dark'}/>
       {DESKS.map((position, index) => <group key={index}>
         <WorkDesk position={position} active={occupiedSeats.has(index + 1)} withChair/>
         <object3D ref={register(anchors, `desk-${index + 1}`)} position={[position[0], 0.1, position[2] + 0.62]}/>
       </group>)}
-      {stations.map((station) => <Character key={station.name} station={station} placement={placementFor(station)} onSelect={onSelect} anchor={register(anchors, `agent-${station.name}`)}/>)}
+      {stations.map((station) => <Character key={station.name} station={station} placement={wandering(station)?.placement ?? placementFor(station)} onSelect={onSelect} anchor={register(anchors, `agent-${station.name}`)}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
       <Controls ref={view} panMode={panMode} keyTarget={keyTarget}/>
     </Canvas>
@@ -261,8 +276,10 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
       {stations.map((station) => {
         const badge = officeStateBadge(station.state)
         const busy = ['Working', 'Reviewing', 'Collaborating'].includes(station.state)
-        return <button key={station.name} ref={register(labels, `agent-${station.name}`)} type="button" className={`agent-tag-3d state-${station.state.toLowerCase()}`} onClick={(event) => onSelect(station, event.currentTarget)} aria-label={`${station.name}. ${station.state}.${station.activity ? ` ${station.activity}.` : ''} Open station details.`}>
+        const idle = wandering(station)
+        return <button key={station.name} ref={register(labels, `agent-${station.name}`)} type="button" className={`agent-tag-3d state-${station.state.toLowerCase()}`} onClick={(event) => onSelect(station, event.currentTarget)} aria-label={`${station.name}. ${station.state}.${station.activity ? ` ${station.activity}.` : ''}${idle ? ` ${idle.stop.label}.` : ''} Open station details.`}>
           {busy && station.activity && <span className="speech speech-3d">{station.activity}</span>}
+          {idle && <span className="speech speech-3d speech-idle">{idle.stop.label}</span>}
           <span className="agent-tag-row"><span className="pixel-station-name">{station.name}</span><span className={`badge ${badge.tone}`}>{station.state === 'Idle' ? 'Idle' : station.state}</span></span>
         </button>
       })}
