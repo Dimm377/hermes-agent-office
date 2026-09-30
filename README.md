@@ -2,7 +2,7 @@
 
 *Ruang* is Indonesian for "room" or "space". It is a 3D virtual office and read-only mission control for your local [Hermes Agent](https://hermes-agent.nousresearch.com) and OpenCode crew. See who is working and what they are doing, plus the Kanban board, cron jobs, sessions, memory, folders and logs, all in one place. Everything is read through the `hermes` CLI, and nothing is ever changed.
 
-![The 3D office: agents at their desks, and idle agents on a break at the bakso cart and the coffee bike](docs/screenshots/office.png)
+![The 3D office: an agent at work at its desk, and idle agents playing ping-pong and console games in the game room](docs/screenshots/office.png)
 
 ![Mission control statistics in the evening theme](docs/screenshots/mission-control.png)
 
