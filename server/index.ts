@@ -45,7 +45,8 @@ for (const [path, handler] of Object.entries(routes)) {
   })
 }
 app.get('/api/tasks/:id', async (request, response) => {
-  const detail = await getTaskDetail(String(request.params.id))
+  const board = typeof request.query.board === 'string' && request.query.board ? request.query.board : undefined
+  const detail = await getTaskDetail(String(request.params.id), Date.now(), board)
   if (!detail) { response.status(404).json({ error: 'Unknown task.' }); return }
   response.json(detail)
 })

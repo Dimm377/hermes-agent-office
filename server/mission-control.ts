@@ -23,12 +23,13 @@ export interface RuntimeSnapshot {
   openCode: Source<string>
   fetchedAt: string
 }
-export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number }
+export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number; board?: string }
+export interface KanbanBoard { slug: string; name: string; current: boolean; total: number }
 /** `agent` is the Hermes profile the job belongs to (cron jobs are stored per profile). */
 export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean; agent?: string }
 export interface Session { title: string; preview: string; lastActive: string; id?: string; workspace?: string; source?: string; actor?: string; active?: boolean }
 export interface Skill { name: string; category: string; source: string; trust: string; status: 'enabled' }
-export interface TaskBoardSnapshot { tasks: Source<Task[]>; fetchedAt: string }
+export interface TaskBoardSnapshot { tasks: Source<Task[]>; boards?: KanbanBoard[]; failedBoards?: string[]; fetchedAt: string }
 /** `failedProfiles` lists profiles whose cron list could not be read while others could. */
 export interface CalendarSnapshot { jobs: Source<ScheduledJob[]>; failedProfiles?: string[]; fetchedAt: string }
 export interface ActivitySnapshot { sessions: Source<Session[]>; fetchedAt: string }
@@ -165,8 +166,14 @@ export function parseGatewayStatus(output: string): GatewayState {
   return 'Unknown'
 }
 
+/** The JSON document in a command's output, skipping any notice lines Hermes prints before it. */
+export function jsonPayload(output: string): unknown {
+  const start = output.search(/^\s*[[{]/m)
+  return JSON.parse(start > 0 ? output.slice(start) : output)
+}
+
 export function parseTasks(output: string): Task[] {
-  const parsed: unknown = JSON.parse(output)
+  const parsed = jsonPayload(output)
   const list = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' && Array.isArray((parsed as Record<string, unknown>).tasks) ? (parsed as { tasks: unknown[] }).tasks : undefined
   if (!list) throw new Error('Kanban response was not an array.')
   const tasks = list.flatMap((item) => {
@@ -420,7 +427,7 @@ async function systemRun(file: string, args: string[], options: RunOptions = {})
   try {
     const { stdout } = await execFile(file, args, {
       timeout: COMMAND_TIMEOUT_MS,
-      maxBuffer: 2 * 1024 * 1024,
+      maxBuffer: 16 * 1024 * 1024,
       env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', COLUMNS: '200', PYTHONIOENCODING: 'utf-8' },
     })
     recordCommand({ command, ok: true, durationMs: Date.now() - started, at: new Date(started).toISOString() })
@@ -474,9 +481,39 @@ export async function collectSnapshot(run: Run = systemRun): Promise<RuntimeSnap
   return { profiles, openCode, fetchedAt: new Date().toISOString() }
 }
 
+/** Board slugs passed to `hermes kanban --board`: Hermes' own slug rule, never an option. */
+export const BOARD_SLUG = /^[a-z0-9][a-z0-9_-]{0,63}$/
+
+export function parseBoards(output: string): KanbanBoard[] {
+  const parsed = jsonPayload(output)
+  if (!Array.isArray(parsed)) throw new Error('Unrecognized Kanban boards output.')
+  return parsed.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const slug = text(record.slug)
+    if (!slug || !BOARD_SLUG.test(slug) || record.archived === true) return []
+    return [{ slug, name: text(record.name) ?? slug, current: record.is_current === true, total: typeof record.total === 'number' && Number.isFinite(record.total) ? record.total : 0 }]
+  })
+}
+
+const KANBAN_CONCURRENCY = 4
+
+/**
+ * Tasks of every Kanban board. Hermes keeps one board per slug (shared by all profiles) and
+ * `hermes kanban list` only shows the current one, so each board with tasks is read with
+ * `--board`. Hermes versions without boards fall back to the plain list.
+ */
 export async function collectTaskBoard(run: Run = systemRun): Promise<TaskBoardSnapshot> {
-  const tasks = await read(run, 'hermes', ['kanban', 'list', '--json'], parseTasks, [])
-  return { tasks, fetchedAt: new Date().toISOString() }
+  const fetchedAt = new Date().toISOString()
+  const boards = await read(run, 'hermes', ['kanban', 'boards', 'list', '--json'], parseBoards, [])
+  if (boards.availability !== 'available' || boards.data.length === 0) return { tasks: await read(run, 'hermes', ['kanban', 'list', '--json'], parseTasks, []), fetchedAt }
+  // Boards list only counts non-archived tasks, which is exactly what `kanban list` returns.
+  const withTasks = boards.data.filter((board) => board.total > 0 || board.current)
+  const results = await mapLimit(withTasks, KANBAN_CONCURRENCY, (board) => read(run, 'hermes', ['kanban', '--board', board.slug, 'list', '--json'], parseTasks, []))
+  const failedBoards = withTasks.filter((_, index) => results[index].availability !== 'available').map((board) => board.slug)
+  if (withTasks.length > 0 && failedBoards.length === withTasks.length) return { tasks: results[0], boards: boards.data, fetchedAt }
+  const tasks = results.flatMap((result, index) => result.availability === 'available' ? result.data.map((task) => ({ ...task, board: withTasks[index].slug })) : [])
+  return { tasks: { availability: 'available', data: tasks }, boards: boards.data, ...(failedBoards.length ? { failedBoards } : {}), fetchedAt }
 }
 
 /**
@@ -599,7 +636,7 @@ function compact<T extends object>(value: T): T {
 }
 
 export function parseTaskDetail(output: string): TaskDetail {
-  const parsed: unknown = JSON.parse(output)
+  const parsed = jsonPayload(output)
   const root = parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : {}
   const task = root.task && typeof root.task === 'object' ? root.task as Record<string, unknown> : undefined
   const id = text(task?.id)
@@ -634,9 +671,10 @@ export function parseTaskDetail(output: string): TaskDetail {
   })
 }
 
-export async function collectTaskDetail(id: string, run: Run = systemRun): Promise<TaskDetailSnapshot> {
+export async function collectTaskDetail(id: string, run: Run = systemRun, board?: string): Promise<TaskDetailSnapshot> {
   if (!TASK_ID.test(id)) throw new Error('Invalid task id.')
-  const task = await read<TaskDetail | null>(run, 'hermes', ['kanban', 'show', id, '--json'], parseTaskDetail, null)
+  if (board !== undefined && !BOARD_SLUG.test(board)) throw new Error('Invalid board.')
+  const task = await read<TaskDetail | null>(run, 'hermes', ['kanban', ...(board ? ['--board', board] : []), 'show', id, '--json'], parseTaskDetail, null)
   return { task, fetchedAt: new Date().toISOString() }
 }
 
@@ -913,11 +951,12 @@ export function getChannels(now = Date.now()): Promise<ChannelSnapshot> { return
 export function getLogs(now = Date.now()): Promise<LogsSnapshot> { return logsSource(now) }
 
 /** Detail for a task on the current board; returns undefined for ids Hermes did not list. */
-export async function getTaskDetail(id: string, now = Date.now()): Promise<TaskDetailSnapshot | undefined> {
-  if (!TASK_ID.test(id)) return undefined
-  const board = await getTaskBoard(now)
-  if (board.tasks.availability === 'available' && !board.tasks.data.some((task) => task.id === id)) return undefined
-  return collectTaskDetail(id)
+/** Details of a task on the current board snapshot; `board` picks the board it lives on. */
+export async function getTaskDetail(id: string, now = Date.now(), board?: string): Promise<TaskDetailSnapshot | undefined> {
+  if (!TASK_ID.test(id) || (board !== undefined && !BOARD_SLUG.test(board))) return undefined
+  const snapshot = await getTaskBoard(now)
+  if (snapshot.tasks.availability === 'available' && !snapshot.tasks.data.some((task) => task.id === id && task.board === board)) return undefined
+  return collectTaskDetail(id, systemRun, board)
 }
 
 export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {

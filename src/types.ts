@@ -7,12 +7,13 @@ export interface RuntimeSnapshot {
   openCode: Source<string>
   fetchedAt: string
 }
-export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number }
+export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number; board?: string }
+export interface KanbanBoard { slug: string; name: string; current: boolean; total: number }
 /** `agent` is the Hermes profile the job belongs to (cron jobs are stored per profile). */
 export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean; agent?: string }
 export interface Session { title: string; preview: string; lastActive: string; id?: string; workspace?: string; source?: string; actor?: string; active?: boolean }
 export interface Skill { name: string; category: string; source: string; trust: string; status: 'enabled' }
-export interface TaskBoardSnapshot { tasks: Source<Task[]>; fetchedAt: string }
+export interface TaskBoardSnapshot { tasks: Source<Task[]>; boards?: KanbanBoard[]; failedBoards?: string[]; fetchedAt: string }
 /** `failedProfiles` lists profiles whose cron list could not be read while others could. */
 export interface CalendarSnapshot { jobs: Source<ScheduledJob[]>; failedProfiles?: string[]; fetchedAt: string }
 export interface ActivitySnapshot { sessions: Source<Session[]>; fetchedAt: string }

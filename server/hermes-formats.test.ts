@@ -8,6 +8,7 @@ import {
   collectInsights,
   collectLogs,
   collectSnapshot,
+  collectTaskBoard,
   getCommandLog,
   parseChannelStatus,
   parseCronJobs,
@@ -97,6 +98,60 @@ describe('Hermes kanban list --json', () => {
       { id: 't_1a2b3c4d', title: 'Draft Q3 report', assignee: 'coder', status: 'running', priority: 2 },
       { id: 't_9f8e7d6c', title: 'Triage inbox', status: 'triage', priority: 0 },
     ])
+  })
+})
+
+describe('Kanban boards', () => {
+  const boards = JSON.stringify([
+    { slug: 'default', name: 'Default', db_path: '/home/me/.hermes/kanban.db', archived: false, is_current: false, counts: { todo: 1 }, total: 1 },
+    { slug: 'launch', name: 'Launch', db_path: '/home/me/.hermes/kanban/boards/launch/kanban.db', archived: false, is_current: true, counts: { running: 1 }, total: 1 },
+    { slug: 'empty', name: 'Empty', archived: false, is_current: false, counts: {}, total: 0 },
+    { slug: '--evil', name: 'Evil', archived: false, is_current: false, counts: { todo: 1 }, total: 1 },
+  ])
+  const tasksOf: Record<string, unknown[]> = {
+    default: [{ id: 't_1', title: 'On default', status: 'todo' }],
+    launch: [{ id: 't_2', title: 'On launch', status: 'running', assignee: 'coder' }],
+  }
+
+  it('reads the tasks of every board with tasks, tagged with their board', async () => {
+    const calls: string[][] = []
+    const snapshot = await collectTaskBoard(async (_file, args) => {
+      calls.push(args)
+      if (args[1] === 'boards') return `A new Hermes version is available.\n${boards}`
+      return JSON.stringify(tasksOf[args[2]] ?? [])
+    })
+    expect(snapshot.tasks.data).toEqual([
+      { id: 't_1', title: 'On default', status: 'todo', board: 'default' },
+      { id: 't_2', title: 'On launch', status: 'running', assignee: 'coder', board: 'launch' },
+    ])
+    expect(snapshot.boards).toEqual([
+      { slug: 'default', name: 'Default', current: false, total: 1 },
+      { slug: 'launch', name: 'Launch', current: true, total: 1 },
+      { slug: 'empty', name: 'Empty', current: false, total: 0 },
+    ])
+    expect(JSON.stringify(snapshot)).not.toContain('/home/me')
+    expect(calls.flat()).not.toContain('--evil')
+    expect(calls).not.toContainEqual(['kanban', '--board', 'empty', 'list', '--json'])
+  })
+
+  it('keeps the other boards when one cannot be read, and falls back without boards', async () => {
+    const partial = await collectTaskBoard(async (_file, args) => {
+      if (args[1] === 'boards') return boards
+      if (args[2] === 'launch') throw new Error('boom')
+      return JSON.stringify(tasksOf[args[2]])
+    })
+    expect(partial.tasks.availability).toBe('available')
+    expect(partial.tasks.data.map((task) => task.id)).toEqual(['t_1'])
+    expect(partial.failedBoards).toEqual(['launch'])
+
+    const calls: string[][] = []
+    const legacy = await collectTaskBoard(async (_file, args) => {
+      calls.push(args)
+      if (args[1] === 'boards') throw new Error('invalid choice')
+      return JSON.stringify(tasksOf.default)
+    })
+    expect(legacy.tasks.data).toEqual([{ id: 't_1', title: 'On default', status: 'todo' }])
+    expect(calls[1]).toEqual(['kanban', 'list', '--json'])
   })
 })
 

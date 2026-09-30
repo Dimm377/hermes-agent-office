@@ -41,5 +41,8 @@ describe('Kanban task detail', () => {
     expect(ok.task.availability).toBe('available')
     expect(calls).toEqual([['kanban', 'show', 't_1a2b3c4d', '--json']])
     await expect(collectTaskDetail('--all')).rejects.toThrow('Invalid task id.')
+    await collectTaskDetail('t_1a2b3c4d', async (_file, args) => { calls.push(args); return JSON.stringify(show) }, 'launch')
+    expect(calls[1]).toEqual(['kanban', '--board', 'launch', 'show', 't_1a2b3c4d', '--json'])
+    await expect(collectTaskDetail('t_1a2b3c4d', async () => '', '--all')).rejects.toThrow('Invalid board.')
   })
 })

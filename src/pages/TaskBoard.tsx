@@ -17,15 +17,15 @@ export function TaskDetailDialog({ task, onClose, onOpenTask }: { task: Task; on
     if (!task.id) return
     let active = true
     setState({ status: 'pending' })
-    void loadSnapshot<TaskDetailSnapshot>(`/api/tasks/${encodeURIComponent(task.id)}`).then((next) => { if (active) setState(next) })
+    void loadSnapshot<TaskDetailSnapshot>(`/api/tasks/${encodeURIComponent(task.id)}${task.board ? `?board=${encodeURIComponent(task.board)}` : ''}`).then((next) => { if (active) setState(next) })
     return () => { active = false }
-  }, [task.id])
+  }, [task.id, task.board])
   const detail = state.status === 'ready' && state.data.task.availability === 'available' ? state.data.task.data : null
   const failed = !task.id || state.status === 'failed' || (state.status === 'ready' && !detail)
   const status = detail?.status ?? task.status
   const links = (label: string, ids: string[]) => ids.length > 0 && <div><dt>{label}</dt><dd className="task-links">{ids.map((id) => <button type="button" key={id} className="chip chip-button" onClick={() => onOpenTask?.(id)}>{id}</button>)}</dd></div>
   return <Dialog labelledBy="task-detail-title" onClose={onClose} closeLabel={`Close details for ${task.title}`} className="task-detail">
-    <p className="eyebrow">KANBAN TASK{task.id ? ` · ${task.id}` : ''}</p>
+    <p className="eyebrow">KANBAN TASK{task.board ? ` · ${task.board.toUpperCase()} BOARD` : ''}{task.id ? ` · ${task.id}` : ''}</p>
     <h2 id="task-detail-title">{detail?.title ?? task.title}</h2>
     <div className="task-meta"><span className={`badge ${statusTone(status)}`}>{status}</span><span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{detail?.assignee ?? task.assignee ?? 'unassigned'}</span>{(detail?.priority ?? task.priority) ? <span className="chip chip-priority">P{detail?.priority ?? task.priority}</span> : null}</div>
     {state.status === 'pending' && task.id && <p className="muted">Loading task details…</p>}
@@ -57,6 +57,7 @@ export function TaskBoard() {
   const snapshot = usePolling<TaskBoardSnapshot>('/api/tasks', 10_000)
   const [query, setQuery] = useState('')
   const [assignee, setAssignee] = useState('all')
+  const [board, setBoard] = useState('all')
   const [openTask, setOpenTask] = useState<Task | undefined>()
   const trigger = useRef<HTMLButtonElement | null>(null)
   const closeTask = () => { setOpenTask(undefined); trigger.current?.focus() }
@@ -64,20 +65,23 @@ export function TaskBoard() {
   const tasks = data?.tasks
   const all = tasks?.data ?? []
   const assignees = [...new Set(all.map((task) => task.assignee ?? UNASSIGNED))].sort()
+  const boards = data?.boards ?? []
+  const multiBoard = boards.length > 1
   const needle = query.trim().toLowerCase()
-  const visible = all.filter((task) => (assignee === 'all' || (task.assignee ?? UNASSIGNED) === assignee) && (!needle || `${task.title} ${task.id ?? ''} ${task.assignee ?? ''}`.toLowerCase().includes(needle)))
+  const visible = all.filter((task) => (assignee === 'all' || (task.assignee ?? UNASSIGNED) === assignee) && (board === 'all' || task.board === board) && (!needle || `${task.title} ${task.id ?? ''} ${task.assignee ?? ''}`.toLowerCase().includes(needle)))
   const columns = orderedStatuses(all.map((task) => task.status), true)
-  return <><PageTitle eyebrow="HERMES KANBAN" title="Task board">Live, read-only view of <code>hermes kanban list</code>. Columns follow the Hermes board order; the board refreshes every 10 seconds.</PageTitle>
+  return <><PageTitle eyebrow="HERMES KANBAN" title="Task board">Live, read-only view of <code>hermes kanban list</code> across every Kanban board. Columns follow the Hermes board order; the board refreshes every 10 seconds.</PageTitle>
     <SourceStatus source={tasks} fetchedAt={data?.fetchedAt} request={snapshot}/><Unavailable source={tasks} request={snapshot}/>
-    {tasks?.availability === 'available' && (all.length === 0 ? <EmptyState title="No tasks">Hermes returned an empty Kanban task list. Create one with <code>hermes kanban create</code>.</EmptyState> : <>
-      <div className="toolbar"><SearchInput value={query} onChange={setQuery} label="Search tasks"/><label className="select-label">Assignee <select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="all">All ({all.length})</option>{assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></label><span className="toolbar-count">{visible.length} shown</span></div>
+    {data?.failedBoards && <p className="file-notice">Could not read the {data.failedBoards.join(', ')} board{data.failedBoards.length === 1 ? '' : 's'}; showing the others.</p>}
+    {tasks?.availability === 'available' && (all.length === 0 ? <EmptyState title="No tasks">{multiBoard ? `None of the ${boards.length} Kanban boards has open tasks.` : 'Hermes returned an empty Kanban task list.'} Create one with <code>hermes kanban create</code>.</EmptyState> : <>
+      <div className="toolbar"><SearchInput value={query} onChange={setQuery} label="Search tasks"/><label className="select-label">Assignee <select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="all">All ({all.length})</option>{assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>{multiBoard && <label className="select-label">Board <select value={board} onChange={(event) => setBoard(event.target.value)}><option value="all">All boards</option>{boards.map((item) => <option key={item.slug} value={item.slug}>{item.name}{item.current ? ' (current)' : ''}</option>)}</select></label>}<span className="toolbar-count">{visible.length} shown</span></div>
       <section className="board" aria-label="Kanban board">{columns.map((status) => {
         const items = visible.filter((task) => task.status === status).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
         return <article key={status} className={`column tone-border-${statusTone(status)}`} aria-label={`${status} column`}><header className="column-head"><p className="eyebrow">{status}</p><span className="column-count">{items.length}</span></header>
-          {items.length === 0 ? <p className="column-empty">—</p> : items.map((task) => <button type="button" className="task task-card" key={`${task.status}-${task.id ?? task.title}`} onClick={(event) => { trigger.current = event.currentTarget; setOpenTask(task) }} aria-label={`${task.title}. ${task.status}. Open task details.`}><strong>{task.title}</strong><div className="task-meta">{task.id && <small>{task.id}</small>}<span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{task.assignee ?? 'unassigned'}</span>{task.priority ? <span className="chip chip-priority">P{task.priority}</span> : null}</div></button>)}
+          {items.length === 0 ? <p className="column-empty">—</p> : items.map((task) => <button type="button" className="task task-card" key={`${task.board ?? ''}-${task.status}-${task.id ?? task.title}`} onClick={(event) => { trigger.current = event.currentTarget; setOpenTask(task) }} aria-label={`${task.title}. ${task.status}. Open task details.`}><strong>{task.title}</strong><div className="task-meta">{task.id && <small>{task.id}</small>}{multiBoard && task.board && <span className="chip chip-muted">{task.board}</span>}<span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{task.assignee ?? 'unassigned'}</span>{task.priority ? <span className="chip chip-priority">P{task.priority}</span> : null}</div></button>)}
         </article>
       })}</section>
     </>)}
-    {openTask && <TaskDetailDialog key={openTask.id ?? openTask.title} task={openTask} onClose={closeTask} onOpenTask={(id) => setOpenTask(all.find((task) => task.id === id) ?? { id, title: id, status: 'unknown' })}/>}
+    {openTask && <TaskDetailDialog key={`${openTask.board ?? ''}-${openTask.id ?? openTask.title}`} task={openTask} onClose={closeTask} onOpenTask={(id) => setOpenTask(all.find((task) => task.id === id && task.board === openTask.board) ?? { id, title: id, status: 'unknown', ...(openTask.board ? { board: openTask.board } : {}) })}/>}
   </>
 }
