@@ -30,13 +30,13 @@ describe('agent memory', () => {
     write(path.join(lead, 'config.yaml'), 'memory:\n  memory_char_limit: 100\n')
     write(path.join(lead, 'AGENTS.md'), '# Conventions\n')
     write(path.join(lead, '.env'), 'SECRET=1\n')
-    write(path.join(home, '.hermes', 'profiles', 'leadengineer', 'SOUL.md'), 'Engineer\n')
+    write(path.join(home, '.hermes', 'profiles', 'coder', 'SOUL.md'), 'Engineer\n')
     write(path.join(home, '.opencode', 'AGENTS.md'), '# OpenCode rules\n')
   })
   afterAll(() => rmSync(home, { recursive: true, force: true }))
 
   it('collects identity, memory stores with usage, context files and settings per agent', async () => {
-    const snapshot = await collectMemory(await resolveAgentFolders(['research'], {}, home))
+    const snapshot = await collectMemory(await resolveAgentFolders(['default', 'coder', 'research'], {}, home))
     const [lead, engineer, research, openCode] = snapshot.agents
     expect(lead).toMatchObject({ profile: 'default', kind: 'hermes', available: true, soul: { exists: true, content: '# Lead\nYou coordinate the crew.\n' } })
     expect(lead.memory).toMatchObject({ exists: true, limit: 100, entries: ['Server runs Ubuntu 22.04', 'Deploy key: api_key=[redacted]'] })

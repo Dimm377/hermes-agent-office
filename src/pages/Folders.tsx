@@ -6,8 +6,6 @@ import type { FolderAgent, FolderAgentsSnapshot, FolderFile, FolderListing } fro
 import { EmptyState, LoadingState, PageTitle, SearchInput, SourceStatus, Unavailable } from '../ui.tsx'
 import { PixelCharacter } from './Office.tsx'
 
-const AVATARS: Record<string, string> = { default: 'lead-agent', leadengineer: 'lead-engineer', opencode: 'opencode' }
-
 function folderUrl(agent: string, kind: 'list' | 'file', path: string): string {
   return `/api/folders/${encodeURIComponent(agent)}/${kind}?path=${encodeURIComponent(path)}`
 }
@@ -114,7 +112,7 @@ export function Folders() {
     {!agent && <SourceStatus source={source} fetchedAt={data?.fetchedAt} request={snapshot}/>}
     <Unavailable source={source} request={snapshot}/>
     {snapshot.status === 'pending' ? <LoadingState message="Finding agent folders..."/> : agent ? <Browser key={agent.profile} agent={agent} onBack={() => setOpenAgent(undefined)}/> : data && <section className="folder-agents">{data.agents.map((item) => <button type="button" key={item.profile} className="folder-agent" disabled={!item.available} onClick={() => setOpenAgent(item.profile)}>
-      <span className="folder-glyph" aria-hidden="true"><PixelCharacter avatar={AVATARS[item.profile] ?? 'opencode'}/></span>
+      <span className="folder-glyph" aria-hidden="true"><PixelCharacter agent={item.profile}/></span>
       <span className="folder-meta"><strong>{item.label}</strong><code className="folder-path">{item.path}</code><small>{item.available ? 'Open folder →' : item.reason ?? 'Folder not available'}</small>{item.warning && <small className="text-bad">⚠ {item.warning}</small>}</span>
     </button>)}</section>}
   </>

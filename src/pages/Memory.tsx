@@ -5,8 +5,6 @@ import type { AgentMemory, MemoryDocument, MemorySnapshot, MemoryStore } from '.
 import { EmptyState, LoadingState, PageTitle, SearchInput, SourceStatus, Unavailable } from '../ui.tsx'
 import { PixelCharacter } from './Office.tsx'
 
-const AVATARS: Record<string, string> = { default: 'lead-agent', leadengineer: 'lead-engineer', opencode: 'opencode' }
-
 function DocumentBody({ document, empty }: { document?: MemoryDocument; empty: string }) {
   if (!document || !document.exists) return <p className="muted">{empty}</p>
   if (document.error) return <p className="file-notice locked">{document.error}</p>
@@ -97,7 +95,7 @@ export function Memory({ onOpenFolders }: { onOpenFolders?: () => void }) {
       <div className="memory-tabs" role="tablist" aria-label="Agents">{agents.map((item) => {
         const peak = Math.max(item.memory?.percent ?? 0, item.user?.percent ?? 0)
         return <button key={item.profile} role="tab" aria-selected={item.profile === agent.profile} className={`memory-tab${item.profile === agent.profile ? ' active' : ''}`} onClick={() => setSelected(item.profile)} disabled={!item.available}>
-          <span className="folder-glyph small" aria-hidden="true"><PixelCharacter avatar={AVATARS[item.profile] ?? 'opencode'}/></span>
+          <span className="folder-glyph small" aria-hidden="true"><PixelCharacter agent={item.profile}/></span>
           <span><strong>{item.label}</strong><small>{!item.available ? item.reason ?? 'not available' : item.kind === 'opencode' ? `${item.contextFiles.length} rules file(s)` : `${(item.memory?.entries.length ?? 0) + (item.user?.entries.length ?? 0)} entries · ${peak}% peak`}</small></span>
         </button>
       })}</div>

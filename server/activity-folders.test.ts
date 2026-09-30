@@ -6,7 +6,7 @@ import { excludedFor, FolderError, fsError, hermesRoot, listFolder, publicAgent,
 import { buildOfficeSnapshot, collectAgentActivity, CommandError, parseRecentActivity, type AgentActivitySnapshot } from './mission-control.js'
 
 const at = '2026-09-27T12:00:00.000Z'
-const runtime = { profiles: { availability: 'available' as const, data: [] }, gateways: { default: { availability: 'available' as const, data: 'Running' as const }, leadEngineer: { availability: 'available' as const, data: 'Running' as const } }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
+const runtime = { profiles: { availability: 'available' as const, data: [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }] }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
 const emptyBoard = { tasks: { availability: 'available' as const, data: [] }, fetchedAt: at }
 const emptyActivity = { sessions: { availability: 'available' as const, data: [] }, fetchedAt: at }
 const quiet = (profile: string) => ({ profile, availability: 'available' as const, active: false, mentionsOpenCode: false })
@@ -31,15 +31,16 @@ describe('live agent activity', () => {
 
   it('probes each station profile with fixed commands and treats a missing log as quiet', async () => {
     const calls: string[] = []
-    const snapshot = await collectAgentActivity(async (_file, args) => {
+    const snapshot = await collectAgentActivity(['default', 'coder', '--evil'], async (_file, args) => {
       calls.push(args.join(' '))
-      if (args.includes('logs') && args[1] === 'leadengineer') throw new CommandError('Command exited with code 1.', 'COMMAND_FAILED', 'Log file not found: x')
+      if (args.includes('logs') && args[1] === 'coder') throw new CommandError('Command exited with code 1.', 'COMMAND_FAILED', 'Log file not found: x')
       if (args.includes('logs')) return '2026-09-27 12:00:01,000 INFO run_agent: turn started\n'
       return 'No sessions found.\n'
     })
     expect(calls).toContain('-p default logs agent -n 80 --since 3m')
-    expect(calls).toContain('-p leadengineer sessions list --limit 3')
-    expect(snapshot.agents).toMatchObject([{ profile: 'default', availability: 'available', active: true, kind: 'thinking' }, { profile: 'leadengineer', availability: 'available', active: false }])
+    expect(calls).toContain('-p coder sessions list --limit 3')
+    expect(calls.join(' ')).not.toContain('--evil')
+    expect(snapshot.agents).toMatchObject([{ profile: 'default', availability: 'available', active: true, kind: 'thinking' }, { profile: 'coder', availability: 'available', active: false }])
   })
 })
 
@@ -49,26 +50,26 @@ describe('office placement from live activity', () => {
   it('moves a chatting or scheduled agent out of the Lounge into the Workspace', () => {
     const office = buildOfficeSnapshot(runtime, emptyBoard, emptyActivity, { now: at, agentActivity: live([
       { profile: 'default', availability: 'available', active: true, kind: 'chat', label: 'Replying to a chat', mentionsOpenCode: false },
-      { profile: 'leadengineer', availability: 'available', active: true, kind: 'cron', label: 'Running a scheduled job', mentionsOpenCode: true },
+      { profile: 'coder', availability: 'available', active: true, kind: 'cron', label: 'Running a scheduled job', mentionsOpenCode: true },
     ]) })
     expect(office.stations).toMatchObject([
-      { name: 'Lead Agent', state: 'Collaborating', room: 'Workspace', roomPosition: 'meeting-area', activity: 'Replying to a chat', seat: 1 },
-      { name: 'Lead Engineer', state: 'Working', room: 'Workspace', roomPosition: 'assigned-desk', activity: 'Running a scheduled job', seat: 2 },
-      { name: 'OpenCode', state: 'Working', room: 'Workspace', activity: 'Building via OpenCode', seat: 3 },
+      { name: 'default', state: 'Collaborating', room: 'Workspace', roomPosition: 'meeting-area', activity: 'Replying to a chat', seat: 1 },
+      { name: 'coder', state: 'Working', room: 'Workspace', roomPosition: 'assigned-desk', activity: 'Running a scheduled job', seat: 2 },
+      { name: 'opencode', state: 'Working', room: 'Workspace', activity: 'Building via OpenCode', seat: 3 },
     ])
     expect(office.summary).toMatchObject({ active: 3, idle: 0 })
   })
 
   it('keeps quiet agents in the Lounge and shows live work even when the gateway is stopped', () => {
-    const quietOffice = buildOfficeSnapshot(runtime, emptyBoard, emptyActivity, { now: at, agentActivity: live([quiet('default'), quiet('leadengineer')]) })
+    const quietOffice = buildOfficeSnapshot(runtime, emptyBoard, emptyActivity, { now: at, agentActivity: live([quiet('default'), quiet('coder')]) })
     expect(quietOffice.stations.map((station) => [station.state, station.room, station.activity])).toEqual([['Idle', 'Lounge', 'On a break'], ['Idle', 'Lounge', 'On a break'], ['Idle', 'Lounge', 'On a break']])
-    const stopped = buildOfficeSnapshot({ ...runtime, gateways: { ...runtime.gateways, leadEngineer: { availability: 'available', data: 'Stopped' } } }, emptyBoard, emptyActivity, { now: at, agentActivity: live([quiet('default'), { profile: 'leadengineer', availability: 'available', active: true, kind: 'tools', label: 'Using tools', mentionsOpenCode: false }]) })
+    const stopped = buildOfficeSnapshot({ ...runtime, profiles: { availability: 'available', data: [{ name: 'default', model: 'm', gateway: 'Running' }, { name: 'coder', model: 'm', gateway: 'Stopped' }] } }, emptyBoard, emptyActivity, { now: at, agentActivity: live([quiet('default'), { profile: 'coder', availability: 'available', active: true, kind: 'tools', label: 'Using tools', mentionsOpenCode: false }]) })
     expect(stopped.stations[1]).toMatchObject({ state: 'Working', room: 'Workspace', activity: 'Using tools' })
   })
 
   it('labels running Kanban work with the task and never idles on an unavailable probe', () => {
     const board = { tasks: { availability: 'available' as const, data: [{ title: 'Ship v2', status: 'running', assignee: 'default' }] }, fetchedAt: at }
-    const office = buildOfficeSnapshot(runtime, board, emptyActivity, { now: at, agentActivity: live([quiet('default'), { profile: 'leadengineer', availability: 'unavailable', active: false, mentionsOpenCode: false }]) })
+    const office = buildOfficeSnapshot(runtime, board, emptyActivity, { now: at, agentActivity: live([quiet('default'), { profile: 'coder', availability: 'unavailable', active: false, mentionsOpenCode: false }]) })
     expect(office.stations[0]).toMatchObject({ state: 'Working', activity: 'Kanban: Ship v2' })
     expect(office.stations[1].state).toBe('Unknown')
     expect(office.stations[2].state).toBe('Unknown')
@@ -92,7 +93,7 @@ describe('agent folders', () => {
     write(path.join(root(), 'profiles', 'default', 'state.db'), Buffer.from([0, 1, 2, 3]))
     write(path.join(root(), 'profiles', 'default', 'image.bin'), Buffer.from([0, 0, 0, 1, 2]))
     write(path.join(root(), 'profiles', 'default', 'memories', 'MEMORY.md'), 'remember this')
-    write(path.join(root(), 'profiles', 'leadengineer', 'SOUL.md'), 'engineer')
+    write(path.join(root(), 'profiles', 'coder', 'SOUL.md'), 'engineer')
     write(path.join(home, '.opencode', 'config.yaml'), 'theme: dark\n')
     symlinkSync(outside, path.join(root(), 'profiles', 'default', 'escape'))
     symlinkSync(path.join(outside, 'secret.txt'), path.join(root(), 'profiles', 'default', 'escape.txt'))
@@ -107,12 +108,12 @@ describe('agent folders', () => {
   })
 
   it('gives every agent its own folder, never the shared Hermes root', async () => {
-    const folders = await resolveAgentFolders(['default', 'leadengineer', 'research'], {}, home)
+    const folders = await resolveAgentFolders(['default', 'coder', 'research'], {}, home)
     expect(folders.map((folder) => [folder.label, folder.path, folder.available])).toEqual([
-      ['Lead Agent', '~/.hermes/profiles/default', true],
-      ['Lead Engineer', '~/.hermes/profiles/leadengineer', true],
+      ['default', '~/.hermes/profiles/default', true],
+      ['coder', '~/.hermes/profiles/coder', true],
       ['research', '~/.hermes/profiles/research', false],
-      ['OpenCode', '~/.opencode', true],
+      ['opencode', '~/.opencode', true],
     ])
     expect(folders.map(publicAgent).every((agent) => !('directory' in agent))).toBe(true)
     const lead = await listFolder(folders[0], '', excludedFor(folders[0], folders))
@@ -127,22 +128,22 @@ describe('agent folders', () => {
   it('falls back to the Hermes root for default and hides the other profiles inside it', async () => {
     const stock = mkdtempSync(path.join(tmpdir(), 'mc-stock-'))
     write(path.join(stock, '.hermes', 'SOUL.md'), 'root soul')
-    write(path.join(stock, '.hermes', 'profiles', 'leadengineer', 'SOUL.md'), 'engineer')
-    const folders = await resolveAgentFolders([], {}, stock)
+    write(path.join(stock, '.hermes', 'profiles', 'coder', 'SOUL.md'), 'engineer')
+    const folders = await resolveAgentFolders(['default', 'coder'], {}, stock)
     expect(folders[0]).toMatchObject({ profile: 'default', path: '~/.hermes', available: true })
     const listing = await listFolder(folders[0], '', excludedFor(folders[0], folders))
     expect(listing.entries.map((entry) => entry.name)).toEqual(['profiles', 'SOUL.md'])
-    await expect(listFolder(folders[0], 'profiles/leadengineer', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
-    await expect(readFolderFile(folders[0], 'profiles/leadengineer/SOUL.md', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
+    await expect(listFolder(folders[0], 'profiles/coder', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
+    await expect(readFolderFile(folders[0], 'profiles/coder/SOUL.md', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
     rmSync(stock, { recursive: true, force: true })
   })
 
   it('refuses a non-default agent that resolves to the root or to another agent', async () => {
     const shared = mkdtempSync(path.join(tmpdir(), 'mc-shared-'))
     mkdirSync(path.join(shared, '.hermes', 'profiles'), { recursive: true })
-    symlinkSync(path.join(shared, '.hermes'), path.join(shared, '.hermes', 'profiles', 'leadengineer'))
-    const folders = await resolveAgentFolders([], {}, shared)
-    expect(folders[1]).toMatchObject({ profile: 'leadengineer', available: false, reason: 'Resolves to the shared Hermes root, not its own folder' })
+    symlinkSync(path.join(shared, '.hermes'), path.join(shared, '.hermes', 'profiles', 'coder'))
+    const folders = await resolveAgentFolders(['default', 'coder'], {}, shared)
+    expect(folders[1]).toMatchObject({ profile: 'coder', available: false, reason: 'Resolves to the shared Hermes root, not its own folder' })
     rmSync(shared, { recursive: true, force: true })
   })
 
@@ -160,16 +161,16 @@ describe('agent folders', () => {
     expect((await readFolderFile(lead, 'image.bin')).kind).toBe('binary')
     await expect(readFolderFile(lead, 'escape.txt')).rejects.toMatchObject({ status: 403 })
     await expect(listFolder(lead, 'escape')).rejects.toMatchObject({ status: 403 })
-    await expect(readFolderFile(lead, '../leadengineer/SOUL.md')).rejects.toMatchObject({ status: 403 })
+    await expect(readFolderFile(lead, '../coder/SOUL.md')).rejects.toMatchObject({ status: 403 })
     await expect(readFolderFile(lead, '../../config.yaml')).rejects.toBeInstanceOf(FolderError)
     expect(safeRelativePath('/memories//')).toBe('memories')
   })
 
   it('explains permission and missing-file errors instead of failing generically', () => {
-    const denied = fsError(Object.assign(new Error('x'), { code: 'EACCES' }), 'the agent folder', '/home/ubuntu/.hermes/profiles/leadengineer')
+    const denied = fsError(Object.assign(new Error('x'), { code: 'EACCES' }), 'the agent folder', '/home/ubuntu/.hermes/profiles/coder')
     expect(denied.status).toBe(403)
     expect(denied.message).toMatch(/^Permission denied: Ruang runs as ".+" and cannot read the agent folder\./)
-    expect(denied.message).toContain('/home/ubuntu/.hermes/profiles/leadengineer')
+    expect(denied.message).toContain('/home/ubuntu/.hermes/profiles/coder')
     expect(fsError(Object.assign(new Error('x'), { code: 'ENOENT' }), '"notes.md"')).toMatchObject({ status: 404, message: '"notes.md" was not found.' })
     expect(fsError(Object.assign(new Error('x'), { code: 'EIO' }), 'the agent folder')).toMatchObject({ status: 500, message: 'Could not read the agent folder (EIO).' })
   })
@@ -178,11 +179,21 @@ describe('agent folders', () => {
     const big = mkdtempSync(path.join(tmpdir(), 'mc-big-'))
     for (let index = 0; index < 650; index += 1) writeFileSync(path.join(big, `session_${String(index).padStart(4, '0')}.json`), '{}')
     mkdirSync(path.join(big, 'archive'))
-    const listing = await listFolder({ profile: 'leadengineer', directory: big }, '')
+    const listing = await listFolder({ profile: 'coder', directory: big }, '')
     expect(listing.entries).toHaveLength(500)
     expect(listing.truncated).toBe(true)
     expect(listing.entries[0]).toMatchObject({ name: 'archive', type: 'dir' })
     expect(listing.entries[1]).toMatchObject({ name: 'session_0000.json', type: 'file', size: 2 })
     rmSync(big, { recursive: true, force: true })
+  })
+})
+
+describe('agent roster', () => {
+  it('lists only the profiles this machine reports, and OpenCode only when its folder exists', async () => {
+    const bare = mkdtempSync(path.join(tmpdir(), 'mc-bare-'))
+    mkdirSync(path.join(bare, '.hermes', 'profiles', 'sales'), { recursive: true })
+    const folders = await resolveAgentFolders(['default', 'sales'], {}, bare)
+    expect(folders.map((folder) => folder.profile)).toEqual(['default', 'sales'])
+    rmSync(bare, { recursive: true, force: true })
   })
 })

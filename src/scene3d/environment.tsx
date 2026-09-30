@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { ARCADES, BAKSO_CART, BEANBAGS, BUILDING, CARROM, COFFEE_TABLE, DESKS, FLAG, GAME_DOOR, GAME_ROOM, GAME_TV, KOPI_BIKE, LOUNGE_PARTITION_END_Z, MEETING_TABLE, PARTITION_X, PING_PONG, SOFA, SPARE_DESKS, STALL_ROTATION, TV, type Vec3 } from '../office3d-layout.ts'
-import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, Beanbag, Bookshelf, CarromTable, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, OfficeLight, PantryCounter, PingPongTable, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock, WorkDesk } from './props.tsx'
+import { ARCADES, BEANBAGS, CARROM, COFFEE_TABLE, FLAG, GAME_DOOR, GAME_ROOM, GAME_TV, LOUNGE_PARTITION_END_Z, MEETING_TABLE, PARTITION_X, PING_PONG, SOFA, STALL_ROTATION, type OfficeLayout, TV, type Vec3 } from '../office3d-layout.ts'
+import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, Beanbag, Bookshelf, CarromTable, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, OfficeLight, PantryCounter, PingPongTable, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock } from './props.tsx'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
 // The building (floors, walls, windows, furniture) and its surroundings (yard, sidewalk,
@@ -67,15 +67,15 @@ function GameRoom({ night }: { night: boolean }) {
   </group>
 }
 
-function Building({ night }: { night: boolean }) {
-  const { minX, maxX, minZ, maxZ } = BUILDING
+function Building({ night, layout }: { night: boolean; layout: OfficeLayout }) {
+  const { minX, maxX, minZ, maxZ } = layout.building
   const wood = useMemo(() => woodFloor([4, 4]), [])
   const tiles = useMemo(() => tileFloor([3, 5]), [])
   const rug = useMemo(() => carpet('#5b7c8c', [2, 2]), [])
   const meetingRug = useMemo(() => carpet('#8a4b3c', [2, 2]), [])
   return <group>
     {/* Floors: parquet everywhere, tiles in the pantry, rugs in the lounge and meeting area */}
-    <Floor position={[0, 0.005, (minZ + maxZ) / 2]} size={[maxX - minX, maxZ - minZ]} map={wood} roughness={0.55}/>
+    <Floor position={[(minX + maxX) / 2, 0.005, (minZ + maxZ) / 2]} size={[maxX - minX, maxZ - minZ]} map={wood} roughness={0.55}/>
     <Floor position={[8.35, 0.01, 1.4]} size={[2.3, 5.4]} map={tiles} roughness={0.35}/>
     <Floor position={[4.6, 0.012, -2.9]} size={[4.4, 2.8]} map={rug}/>
     <Floor position={[-5.2, 0.012, 2.2]} size={[3.6, 3]} map={meetingRug}/>
@@ -100,7 +100,6 @@ function Building({ night }: { night: boolean }) {
     {[-7, -3.6, 1.4, 6.6].map((x) => <Window key={x} position={[x, 1.55, minZ + 0.14]} night={night}/>)}
     {[-3, 0.6].map((z) => <group key={z} rotation={[0, Math.PI / 2, 0]} position={[minX + 0.14, 1.55, z]}><Window position={[0, 0, 0]} width={1.6} night={night}/></group>)}
     {/* Workspace */}
-    {SPARE_DESKS.map((position, index) => <WorkDesk key={index} position={position} active={false}/>)}
     <MeetingTable position={MEETING_TABLE}/>
     <Bookshelf position={[minX + 0.35, 0, -0.9]} rotation={Math.PI / 2}/>
     <Plant position={[minX + 0.5, 0, -4.6]}/>
@@ -124,46 +123,48 @@ function Building({ night }: { night: boolean }) {
     <AirConditioner position={[TV[0], 2.3, minZ + 0.125]}/>
     <AirConditioner position={[minX + 0.125, 2.3, 2.6]} rotation={Math.PI / 2}/>
     {/* Office lights: suspended cool-white LED bars */}
-    {[...DESKS.map(([x, , z]): Vec3 => [x, 2.4, z + 0.2]), ...SPARE_DESKS.map(([x, , z]): Vec3 => [x, 2.4, z]), [MEETING_TABLE[0], 2.3, MEETING_TABLE[2]] as Vec3, [COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2] + 0.4] as Vec3, [8.2, 2.4, 1.2] as Vec3].map((position) => <OfficeLight key={position.join(',')} position={position} night={night}/>)}
+    {[...layout.desks.map(([x, , z]): Vec3 => [x, 2.4, z + 0.2]), [MEETING_TABLE[0], 2.3, MEETING_TABLE[2]] as Vec3, [COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2] + 0.4] as Vec3, [8.2, 2.4, 1.2] as Vec3].map((position) => <OfficeLight key={position.join(',')} position={position} night={night}/>)}
     <GameRoom night={night}/>
   </group>
 }
 
-function Outdoors({ night }: { night: boolean }) {
+function Outdoors({ night, layout }: { night: boolean; layout: OfficeLayout }) {
+  // How far the building grew to the left for a larger crew; the grounds grow with it.
+  const shift = layout.building.minX + 9.5
   const lawn = useMemo(() => grass([14, 12]), [])
   const road = useMemo(() => asphalt([8, 1]), [])
   const sidewalk = useMemo(() => pavingStones([14, 2]), [])
   const gang = useMemo(() => pavingStones([2, 5]), [])
   return <group>
-    <Floor position={[0, -0.02, 2]} size={[60, 44]} map={lawn} roughness={1}/>
-    <Floor position={[0, -0.005, 7.1]} size={[34, 5]} map={sidewalk} roughness={0.9}/>
-    <Floor position={[0, -0.01, 12.1]} size={[60, 5]} map={road} roughness={0.95}/>
+    <Floor position={[shift / 2, -0.02, 2]} size={[60 - shift, 44]} map={lawn} roughness={1}/>
+    <Floor position={[shift / 2, -0.005, 7.1]} size={[34 - shift, 5]} map={sidewalk} roughness={0.9}/>
+    <Floor position={[shift / 2, -0.01, 12.1]} size={[60 - shift, 5]} map={road} roughness={0.95}/>
     {/* Path from the entrance to the sidewalk */}
     <Floor position={[5.8, 0, 4.7]} size={[1.8, 1]} map={sidewalk}/>
     {/* Merah Putih by the entrance */}
     <FlagPole position={FLAG}/>
     {/* The gang (alley) left of the building, with the street food out of the main view */}
-    <Floor position={[-11.4, -0.008, -0.4]} size={[3.6, 10]} map={gang} roughness={0.9}/>
-    <group position={BAKSO_CART} rotation={[0, STALL_ROTATION, 0]}>
+    <Floor position={[layout.gangCenterX, -0.008, -0.4]} size={[3.6, 10]} map={gang} roughness={0.9}/>
+    <group position={layout.baksoCart} rotation={[0, STALL_ROTATION, 0]}>
       <Gerobak position={[0, 0, 0]} night={night}/>
       <Vendor position={[-1.6, 0, 0]} rotation={Math.PI / 2} shirt="#f1f1ec" hat="peci"/>
     </group>
-    <group position={KOPI_BIKE} rotation={[0, STALL_ROTATION, 0]}>
+    <group position={layout.kopiBike} rotation={[0, STALL_ROTATION, 0]}>
       <KopiSepeda position={[0, 0, 0]} night={night}/>
       <Vendor position={[-1.35, 0, -0.1]} rotation={Math.PI / 2} shirt="#2f6d8f" hat="cap"/>
     </group>
     {/* AC outdoor units behind the building */}
-    <AcOutdoorUnit position={[-5.3, 0, BUILDING.minZ - 0.45]} rotation={Math.PI}/>
-    <AcOutdoorUnit position={[TV[0] - 1.6, 0, BUILDING.minZ - 0.45]} rotation={Math.PI}/>
+    <AcOutdoorUnit position={[-5.3, 0, layout.building.minZ - 0.45]} rotation={Math.PI}/>
+    <AcOutdoorUnit position={[TV[0] - 1.6, 0, layout.building.minZ - 0.45]} rotation={Math.PI}/>
     <StreetLamp position={[-8, 0, 9.3]} night={night}/>
     <StreetLamp position={[4, 0, 9.3]} night={night}/>
-    {[[-12.8, -7.4, 1.3], [13.5, -7.2, 1.2], [-14.8, 2.6, 1.1], [18.6, 4.8, 1.3], [-10.5, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].map(([x, z, size]) => <Tree key={`${x}${z}`} position={[x, 0, z]} size={size}/>)}
+    {[[-12.8 + shift, -7.4, 1.3], [13.5, -7.2, 1.2], [-14.8 + shift, 2.6, 1.1], [18.6, 4.8, 1.3], [-10.5 + shift, 7.5, 1], [12, 8, 1.1], [-2, -8.5, 1.2], [6, -8, 1.1]].map(([x, z, size]) => <Tree key={`${x}${z}`} position={[x, 0, z]} size={size}/>)}
   </group>
 }
 
-export function Environment({ night = false }: { night?: boolean }) {
+export function Environment({ night = false, layout }: { night?: boolean; layout: OfficeLayout }) {
   return <group>
-    <Building night={night}/>
-    <Outdoors night={night}/>
+    <Building night={night} layout={layout}/>
+    <Outdoors night={night} layout={layout}/>
   </group>
 }

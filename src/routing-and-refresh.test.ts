@@ -12,7 +12,7 @@ describe('hash routing', () => {
     expect(pageFromHash('#/nope')).toBe('Office')
     expect(navigation).toContain('Logs')
     expect(pageFromHash('#/knowledge')).toBe('Memory')
-    expect(pageFromHash('#/folders/leadengineer')).toBe('Folders')
+    expect(pageFromHash('#/folders/coder')).toBe('Folders')
   })
 })
 

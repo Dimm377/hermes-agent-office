@@ -1,6 +1,6 @@
 import { formatCompact, formatDateTime, formatNumber, orderedStatuses, statusTone } from '../format.ts'
 import type { DashboardSnapshot } from '../types.ts'
-import { EmptyState, LoadingState, RuntimeBadge } from '../ui.tsx'
+import { EmptyState, LoadingState } from '../ui.tsx'
 import type { Page } from '../routes.ts'
 
 function availableCount(source: { availability: string; total: number }, unit?: string) {
@@ -17,7 +17,6 @@ export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: D
   if (!dashboard) return <EmptyState title="Not Available">The Ruang API could not be reached. Start it with <code>npm run dev</code>.</EmptyState>
   const { runtime, tasks, calendar, activity, knowledge, channels, office, usage, commands } = dashboard
   const go = (page: Page) => onNavigate ? () => onNavigate(page) : undefined
-  const lead = runtime.profiles.data.find((profile) => profile.name === 'default')
   const openTasks = Object.entries(tasks.byStatus).filter(([status]) => !['done', 'archived'].includes(status)).reduce((sum, [, count]) => sum + count, 0)
   const statuses = orderedStatuses(Object.keys(tasks.byStatus))
   const insight = usage.availability === 'available' ? usage.data : null
@@ -28,7 +27,7 @@ export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: D
   return <div className="stats-view">
     {hermesMissing && <section className="notice" role="status"><strong>Hermes CLI not found.</strong> Ruang reads everything through the <code>hermes</code> command. Install Hermes Agent and make sure <code>hermes</code> is on the PATH of the shell that runs <code>npm run dev</code>, then press Refresh all.</section>}
     <section className="stat-grid" aria-label="Key statistics">
-      <StatTile label="Gateways running" value={`${office.gatewaysReachable} / ${office.gatewaysDeclared}`} detail="Lead + Engineer" onClick={go('Agents')}/>
+      <StatTile label="Gateways running" value={`${office.gatewaysReachable} / ${office.gatewaysDeclared}`} detail="Hermes profiles" onClick={go('Agents')}/>
       <StatTile label="Crew active" value={`${office.active} / ${office.declared}`} detail={`${office.idle} idle · ${office.offline} offline · ${office.unknown} unknown`} />
       <StatTile label="Open tasks" value={tasks.availability === 'available' ? formatNumber(openTasks) : 'Not Available'} detail={tasks.availability === 'available' ? `${formatNumber(tasks.total)} total · ${tasks.byStatus.running ?? 0} running` : undefined} onClick={go('Task Board')}/>
       <StatTile label="Scheduled jobs" value={availableCount(calendar)} detail={calendar.availability === 'available' ? `${calendar.active} active · ${calendar.paused} paused` : undefined} onClick={go('Calendar')}/>
@@ -67,11 +66,10 @@ export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: D
       <article className="card">
         <p className="eyebrow">RUNTIME</p>
         <dl className="runtime-list">
-          <div><dt>Lead gateway</dt><dd><RuntimeBadge source={runtime.gateways.default}/></dd></div>
-          <div><dt>Engineer gateway</dt><dd><RuntimeBadge source={runtime.gateways.leadEngineer}/></dd></div>
-          <div><dt>OpenCode</dt><dd>{runtime.openCode.availability === 'available' ? runtime.openCode.data : 'Not Available'}</dd></div>
-          <div><dt>Lead model</dt><dd>{runtime.profiles.availability === 'unavailable' ? 'Not Available' : lead?.model ?? 'Unknown'}</dd></div>
-          <div><dt>Profiles</dt><dd>{runtime.profiles.availability === 'available' ? runtime.profiles.data.length : 'Not Available'}</dd></div>
+          <div><dt>Hermes profiles</dt><dd>{runtime.profiles.availability === 'available' ? runtime.profiles.data.length : 'Not Available'}</dd></div>
+          <div><dt>Gateways running</dt><dd>{runtime.profiles.availability === 'available' ? `${runtime.profiles.data.filter((profile) => profile.gateway === 'Running').length} of ${runtime.profiles.data.length}` : 'Not Available'}</dd></div>
+          <div><dt>Models in use</dt><dd>{runtime.profiles.availability === 'available' ? [...new Set(runtime.profiles.data.map((profile) => profile.model).filter((model) => model !== 'Not configured'))].join(', ') || '—' : 'Not Available'}</dd></div>
+          <div><dt>OpenCode</dt><dd>{runtime.openCode.availability === 'available' ? runtime.openCode.data : 'Not installed'}</dd></div>
         </dl>
       </article>
 

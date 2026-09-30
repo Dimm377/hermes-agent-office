@@ -204,8 +204,6 @@ export async function readFolderFile(folder: Pick<AgentFolder, 'profile' | 'dire
   }
 }
 
-const LABELS: Record<string, string> = { default: 'Lead Agent', leadengineer: 'Lead Engineer', opencode: 'OpenCode' }
-
 function displayPath(directory: string, home: string): string {
   const relative = path.relative(home, directory)
   return !relative.startsWith('..') && !path.isAbsolute(relative) ? (relative ? `~/${relative}` : '~') : directory
@@ -233,7 +231,10 @@ async function firstDirectory(candidates: string[]): Promise<{ directory: string
  */
 export async function resolveAgentFolders(profiles: string[], env: NodeJS.ProcessEnv = process.env, home = homedir()): Promise<AgentFolder[]> {
   const root = hermesRoot(env, home)
-  const names = [...new Set(['default', 'leadengineer', ...profiles.filter((name) => name !== 'opencode')])].filter((name) => PROFILE_NAME.test(name))
+  // Every Hermes profile this machine reports; `default` always exists in Hermes, so it is the
+  // fallback when the profile list cannot be read.
+  const listed = profiles.filter((name) => name !== 'opencode' && PROFILE_NAME.test(name))
+  const names = [...new Set(listed.length ? listed : ['default'])]
   const specs = [
     ...names.map((profile) => ({ profile, candidates: profile === 'default' ? [path.join(root, 'profiles', 'default'), root] : [path.join(root, 'profiles', profile)] })),
     { profile: 'opencode', candidates: (env.RUANG_OPENCODE_DIR ?? env.MISSION_CONTROL_OPENCODE_DIR) ? [path.resolve((env.RUANG_OPENCODE_DIR ?? env.MISSION_CONTROL_OPENCODE_DIR)!)] : [path.join(home, '.opencode'), path.join(home, '.config', 'opencode')] },
@@ -243,8 +244,10 @@ export async function resolveAgentFolders(profiles: string[], env: NodeJS.Proces
   const folders: AgentFolder[] = []
   for (const spec of specs) {
     const { directory, real, denied } = await firstDirectory(spec.candidates)
-    const label = LABELS[spec.profile] ?? spec.profile
+    const label = spec.profile
     const base = { profile: spec.profile, label, path: displayPath(directory, home), directory: real ?? directory }
+    // OpenCode is optional: without its folder it is simply not listed.
+    if (!real && spec.profile === 'opencode' && !denied) continue
     if (!real) { folders.push({ ...base, available: false, reason: denied ? `Permission denied for "${processUser()}" (a parent folder is not readable)` : 'Folder not found on this machine' }); continue }
     if (spec.profile !== 'default' && real === realRoot) { folders.push({ ...base, available: false, reason: 'Resolves to the shared Hermes root, not its own folder' }); continue }
     const owner = claimed.get(real)

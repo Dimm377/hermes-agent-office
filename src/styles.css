@@ -191,9 +191,6 @@
 
 /* Station people are built from visible pixel anatomy rather than identity tokens. */
 .pixel-character { --hair: #24394b; --skin: #e9b57d; --shirt: #6bd4c0; --pants: #263b55; display: inline-block; height: 58px; position: relative; width: 52px; z-index: 2; }
-.pixel-character.lead-agent { --hair: #b54b45; --shirt: #e6b34e; --pants: #36475d; }
-.pixel-character.lead-engineer { --hair: #1d293c; --shirt: #70bdcb; --pants: #374052; }
-.pixel-character.opencode { --hair: #6a4d8d; --shirt: #93ca67; --pants: #344349; }
 .character-head, .character-hair, .character-torso, .character-arm, .character-leg { image-rendering: pixelated; position: absolute; }
 .character-head { background: var(--skin); box-shadow: inset 4px 0 #d79666; height: 20px; left: 15px; top: 9px; width: 22px; }
 .character-head i, .character-head b { background: #17201e; display: block; height: 3px; position: absolute; top: 9px; width: 3px; }.character-head i { left: 5px; }.character-head b { right: 5px; }
@@ -664,3 +661,35 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .month-filter select { background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); font: 12px inherit; padding: 4px 6px; }
 .month-day-detail .chip, .job-agent { margin-left: 8px; }
 .job-agent { font-size: 11px; vertical-align: middle; }
+
+/* Agents page: one card per agent, however many there are */
+.agent-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); margin-top: 24px; }
+.agent-card { align-items: start; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; display: grid; gap: 14px; grid-template-columns: auto minmax(0, 1fr); padding: 16px; }
+.agent-card h2 { font-size: 18px; letter-spacing: -.02em; margin: 0; overflow-wrap: anywhere; }
+.agent-card p { margin: 2px 0 10px; }
+.agent-card dl { display: grid; gap: 8px; grid-template-columns: 1fr; }
+.agent-card dl > div { align-items: baseline; display: flex; gap: 8px; justify-content: space-between; }
+.agent-card dt { margin: 0; }
+.agent-card dd { overflow-wrap: anywhere; text-align: right; }
+
+/* 2D office for any crew size: a grid of unlabeled hot desks, the meeting table and the lounge
+   flow instead of fixed seat positions. */
+.pixel-room.flow { align-content: start; aspect-ratio: auto; display: grid; gap: 18px; height: auto; min-height: 360px; min-width: 0; padding: 64px 18px 22px; }
+.pixel-room.flow::after { display: none; }
+.pixel-room.flow .pixel-station { bottom: auto; left: auto; position: relative; right: auto; top: auto; transform: none; }
+.flow-desks { display: grid; gap: 18px 12px; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); position: relative; z-index: 4; }
+.flow-desk-cell { align-content: end; display: grid; gap: 6px; justify-items: center; min-height: 150px; }
+.pixel-room.flow .ws-desk { bottom: auto; height: 20px; left: auto; margin-top: 18px; position: relative; transform: none; width: 72px; }
+.flow-meeting { align-items: center; border-top: 1px dashed rgb(255 255 255 / .14); display: flex; flex-wrap: wrap; gap: 18px; padding-top: 14px; position: relative; z-index: 4; }
+.pixel-room.flow .meeting-table { bottom: auto; flex: none; height: 56px; left: auto; position: relative; width: 110px; }
+.flow-crew { display: flex; flex-wrap: wrap; gap: 12px; position: relative; z-index: 4; }
+.flow-lounge-props { align-items: end; display: flex; flex-wrap: wrap; gap: 14px; position: relative; z-index: 3; }
+.flow-lounge-props > div { bottom: auto; flex: none; left: auto; position: relative; right: auto; top: auto; transform: none; }
+.flow-lounge-props .lounge-sofa { height: 46px; width: 150px; }
+.flow-lounge-props .lounge-chair { height: 40px; width: 44px; }
+.flow-lounge-props .coffee-table { height: 26px; width: 70px; }
+.flow-lounge-props .pixel-tv { height: 50px; width: 80px; }
+.flow-lounge-props .pixel-plant { height: 44px; width: 30px; }
+.pixel-room.flow + .room-hint { display: none; }
+.pixel-room.flow .flow-crew .pixel-station { min-width: 140px; width: auto; }
+.pixel-room.flow .flow-crew { gap: 14px 18px; }

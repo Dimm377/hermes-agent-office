@@ -3,7 +3,8 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, 
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { officeStateBadge } from '../office-state.ts'
-import { CAMERA_OFFSET, CAMERA_TARGET, DESKS, PALETTE, SKIN, clampTarget, idleStop, placementFor, walkPath, type Placement, type Vec3 } from '../office3d-layout.ts'
+import { agentLook } from '../agents.ts'
+import { clampTarget, createLayout, idlePlan, placementFor, walkPath, type OfficeLayout, type Placement, type Vec3 } from '../office3d-layout.ts'
 import { Environment } from '../scene3d/environment.tsx'
 import { RBox, WorkDesk } from '../scene3d/props.tsx'
 import type { OfficeStation } from '../types.ts'
@@ -13,14 +14,14 @@ import type { OfficeStation } from '../types.ts'
 
 type Registry<T> = MutableRefObject<Map<string, T>>
 
-function Character({ station, placement, onSelect, anchor }: { station: OfficeStation; placement: Placement; onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void; anchor: (object: THREE.Object3D | null) => void }) {
+function Character({ station, placement, layout, onSelect, anchor }: { station: OfficeStation; placement: Placement; layout: OfficeLayout; onSelect: (station: OfficeStation, trigger: HTMLElement | null) => void; anchor: (object: THREE.Object3D | null) => void }) {
   const root = useRef<THREE.Group>(null)
   const body = useRef<THREE.Group>(null)
   const leftLeg = useRef<THREE.Mesh>(null)
   const rightLeg = useRef<THREE.Mesh>(null)
   const leftArm = useRef<THREE.Mesh>(null)
   const rightArm = useRef<THREE.Mesh>(null)
-  const colors = PALETTE[station.avatar] ?? PALETTE.opencode
+  const colors = agentLook(station.id)
   const offline = station.state === 'Offline'
   const unknown = station.state === 'Unknown'
   const tint = (color: string) => offline ? '#7b7f7d' : color
@@ -32,7 +33,7 @@ function Character({ station, placement, onSelect, anchor }: { station: OfficeSt
     const group = root.current
     if (!group) return
     const [x, , z] = placement.position
-    path.current = walkPath([group.position.x, group.position.z], [x, z]).map(([px, pz]) => new THREE.Vector3(px, 0, pz))
+    path.current = walkPath([group.position.x, group.position.z], [x, z], layout).map(([px, pz]) => new THREE.Vector3(px, 0, pz))
     // placement.position is captured through `destination`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destination])
@@ -83,7 +84,7 @@ function Character({ station, placement, onSelect, anchor }: { station: OfficeSt
       <RBox position={[0, 0.98, 0]} size={[0.48, 0.58, 0.3]} radius={0.07} color={tint(colors.shirt)} roughness={0.85}/>
       <mesh ref={leftArm} position={[-0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
       <mesh ref={rightArm} position={[0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
-      <RBox position={[0, 1.5, 0]} size={[0.4, 0.4, 0.37]} radius={0.08} color={tint(SKIN)} roughness={0.7}/>
+      <RBox position={[0, 1.5, 0]} size={[0.4, 0.4, 0.37]} radius={0.08} color={tint(colors.skin)} roughness={0.7}/>
       <RBox position={[0, 1.72, -0.02]} size={[0.43, 0.13, 0.41]} radius={0.05} color={tint(colors.hair)} roughness={0.9}/>
       <RBox position={[0, 1.58, -0.19]} size={[0.43, 0.3, 0.06]} radius={0.03} color={tint(colors.hair)} roughness={0.9}/>
       <RBox position={[-0.09, 1.52, 0.186]} size={[0.06, 0.07, 0.01]} radius={0.004} color="#17201e" shadow={false}/>
@@ -143,16 +144,17 @@ function LabelProjector({ anchors, labels }: { anchors: Registry<THREE.Object3D>
 export interface ViewHandle { reset: () => void }
 
 /** Orbit (drag), pan (right-drag, two fingers, arrow keys or pan mode) and zoom, kept in bounds. */
-const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLElement | null }>(function Controls({ panMode, keyTarget }, handle) {
+const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLElement | null; layout: OfficeLayout }>(function Controls({ panMode, keyTarget, layout }, handle) {
   const { camera, gl, size } = useThree()
   const controls = useRef<OrbitControls | null>(null)
-  const target = useMemo(() => new THREE.Vector3(...CAMERA_TARGET), [])
+  const { target: cameraTarget, offset: cameraOffset } = layout.camera
+  const target = useMemo(() => new THREE.Vector3(...cameraTarget), [cameraTarget])
   const frame = useMemo(() => () => {
     const aspect = size.width / Math.max(size.height, 1)
-    const offset = new THREE.Vector3(...CAMERA_OFFSET)
+    const offset = new THREE.Vector3(...cameraOffset)
     // Narrow (portrait) views need to back off so the whole building fits across.
     offset.setLength(offset.length() * Math.max(1, 1.2 / aspect))
-    const focus = target.clone().set(aspect < 1 ? -0.4 : CAMERA_TARGET[0], CAMERA_TARGET[1], aspect < 1 ? 0.8 : CAMERA_TARGET[2])
+    const focus = target.clone().set(aspect < 1 ? cameraTarget[0] - 1.4 : cameraTarget[0], cameraTarget[1], aspect < 1 ? 0.8 : cameraTarget[2])
     const orbit = controls.current
     // An undamped update applies and clears any momentum left from an earlier drag,
     // so it has to happen before the camera is placed, not after.
@@ -163,7 +165,7 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
     orbit.target.copy(focus)
     orbit.update()
     orbit.enableDamping = true
-  }, [camera, size.width, size.height, target])
+  }, [camera, size.width, size.height, target, cameraOffset, cameraTarget])
 
   useEffect(() => {
     const orbit = new OrbitControls(camera, gl.domElement)
@@ -200,7 +202,7 @@ const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLEleme
     const orbit = controls.current
     if (!orbit) return
     orbit.update()
-    const [x, z] = clampTarget(orbit.target.x, orbit.target.z)
+    const [x, z] = clampTarget(orbit.target.x, orbit.target.z, layout.pan)
     if (x !== orbit.target.x || z !== orbit.target.z) {
       const shift = new THREE.Vector3(x - orbit.target.x, 0, z - orbit.target.z)
       orbit.target.add(shift)
@@ -255,29 +257,32 @@ export default function Office3D({ stations, onSelect }: { stations: OfficeStati
   const [keyTarget, setKeyTarget] = useState<HTMLElement | null>(null)
   const theme = useThemeName()
   const now = useClock(2000)
-  // Idle agents wander between the lounge, the pantry and the street food (decorative only).
-  const wandering = (station: OfficeStation) => station.state === 'Idle' && station.room === 'Lounge' ? idleStop(station.seat, now) : undefined
+  // One unlabeled desk per agent (hot desking); the building is sized for the crew.
+  const layout = useMemo(() => createLayout(stations.length), [stations.length])
+  // Idle agents wander between the lounge, the game room, the pantry and the street food
+  // (decorative only), spread so no two share a spot.
+  const idleSeats = stations.filter((station) => station.state === 'Idle' && station.room === 'Lounge').map((station) => station.seat)
+  const plan = idlePlan(idleSeats, now, layout)
+  const wandering = (station: OfficeStation) => station.state === 'Idle' && station.room === 'Lounge' ? plan.get(station.seat) : undefined
+  // Agents at the meeting table take the next free place around it.
+  const meetingOrder = stations.filter((station) => station.roomPosition === 'meeting-area').map((station) => station.id)
+  const placement = (station: OfficeStation) => wandering(station)?.placement ?? placementFor(station, layout, Math.max(0, meetingOrder.indexOf(station.id)))
   const occupiedSeats = new Set(stations.filter((station) => station.room === 'Workspace' && station.roomPosition !== 'meeting-area' && station.state !== 'Offline').map((station) => station.seat))
-  const workstations = new Map(stations.map((station) => [station.seat, station.workstation]))
   return <div className="office-3d" ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused.">
     <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }}>
       <Lighting theme={theme}/>
-      <Environment night={theme === 'dark'}/>
-      {DESKS.map((position, index) => <group key={index}>
-        <WorkDesk position={position} active={occupiedSeats.has(index + 1)} withChair/>
-        <object3D ref={register(anchors, `desk-${index + 1}`)} position={[position[0], 0.1, position[2] + 0.62]}/>
-      </group>)}
-      {stations.map((station) => <Character key={station.name} station={station} placement={wandering(station)?.placement ?? placementFor(station)} onSelect={onSelect} anchor={register(anchors, `agent-${station.name}`)}/>)}
+      <Environment night={theme === 'dark'} layout={layout}/>
+      {layout.desks.map((position, index) => <WorkDesk key={index} position={position} active={occupiedSeats.has(index + 1)} withChair/>)}
+      {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} onSelect={onSelect} anchor={register(anchors, `agent-${station.id}`)}/>)}
       <LabelProjector anchors={anchors} labels={labels}/>
-      <Controls ref={view} panMode={panMode} keyTarget={keyTarget}/>
+      <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout}/>
     </Canvas>
     <div className="office-3d-labels">
-      {DESKS.map((_, index) => <span key={index} ref={register(labels, `desk-${index + 1}`)} className="desk-label-3d">{workstations.get(index + 1) ?? `Desk ${index + 1}`}</span>)}
       {stations.map((station) => {
         const badge = officeStateBadge(station.state)
         const busy = ['Working', 'Reviewing', 'Collaborating'].includes(station.state)
         const idle = wandering(station)
-        return <button key={station.name} ref={register(labels, `agent-${station.name}`)} type="button" className={`agent-tag-3d state-${station.state.toLowerCase()}`} onClick={(event) => onSelect(station, event.currentTarget)} aria-label={`${station.name}. ${station.state}.${station.activity ? ` ${station.activity}.` : ''}${idle ? ` ${idle.placement.label ?? idle.stop.label}.` : ''} Open station details.`}>
+        return <button key={station.id} ref={register(labels, `agent-${station.id}`)} type="button" className={`agent-tag-3d state-${station.state.toLowerCase()}`} onClick={(event) => onSelect(station, event.currentTarget)} aria-label={`${station.name}. ${station.state}.${station.activity ? ` ${station.activity}.` : ''}${idle ? ` ${idle.placement.label ?? idle.stop.label}.` : ''} Open station details.`}>
           {busy && station.activity && <span className="speech speech-3d">{station.activity}</span>}
           {idle && <span className="speech speech-3d speech-idle">{idle.placement.label ?? idle.stop.label}</span>}
           <span className="agent-tag-row"><span className="pixel-station-name">{station.name}</span><span className={`badge ${badge.tone}`}>{station.state === 'Idle' ? 'Idle' : station.state}</span></span>

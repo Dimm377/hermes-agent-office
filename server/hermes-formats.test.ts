@@ -27,7 +27,7 @@ const profileList = [
   ` ${'Profile'.padEnd(16)} ${'Model'.padEnd(28)} ${'Gateway'.padEnd(12)} ${'Alias'.padEnd(12)} Distribution`,
   ` ${'─'.repeat(15)}    ${'─'.repeat(27)}    ${'─'.repeat(11)}    ${'─'.repeat(11)}    ${'─'.repeat(20)}`,
   ` ◆${'default'.padEnd(15)} ${'anthropic/claude-sonnet-4'.padEnd(28)} ${'running'.padEnd(12)} ${'—'.padEnd(12)} —`,
-  `  ${'Lead Engineer (leadengineer)'.padEnd(15)} ${'openai/gpt-5.5'.padEnd(28)} ${'stopped'.padEnd(12)} ${'le'.padEnd(12)} —`,
+  `  ${'Code Helper (coder)'.padEnd(15)} ${'openai/gpt-5.5'.padEnd(28)} ${'stopped'.padEnd(12)} ${'ch'.padEnd(12)} —`,
   `  ${'scratch'.padEnd(15)} ${'—'.padEnd(28)} ${'stopped'.padEnd(12)} ${'—'.padEnd(12)} —`,
   '',
 ].join('\n')
@@ -59,9 +59,9 @@ const cronList = `
 describe('Hermes profile list', () => {
   it('reads display-name ids, long names and unset models by column', () => {
     expect(parseProfiles(profileList)).toEqual([
-      { name: 'default', model: 'anthropic/claude-sonnet-4' },
-      { name: 'leadengineer', model: 'openai/gpt-5.5' },
-      { name: 'scratch', model: 'Not configured' },
+      { name: 'default', model: 'anthropic/claude-sonnet-4', gateway: 'Running' },
+      { name: 'coder', model: 'openai/gpt-5.5', gateway: 'Stopped' },
+      { name: 'scratch', model: 'Not configured', gateway: 'Stopped' },
     ])
   })
 
@@ -71,8 +71,7 @@ describe('Hermes profile list', () => {
       if (file === 'opencode') return 'opencode 0.14.2\n'
       return '✗ Gateway is not running\n\nTo start:\n  hermes gateway run      # Run in foreground\n'
     })
-    expect(snapshot.gateways.default).toEqual({ availability: 'available', data: 'Running' })
-    expect(snapshot.gateways.leadEngineer).toEqual({ availability: 'available', data: 'Stopped' })
+    expect(snapshot.profiles.data.map((profile) => [profile.name, profile.gateway])).toEqual([['default', 'Running'], ['coder', 'Stopped'], ['scratch', 'Stopped']])
     expect(snapshot.openCode.data).toBe('opencode 0.14.2')
   })
 })
@@ -84,18 +83,18 @@ describe('Hermes gateway status', () => {
     expect(parseGatewayStatus('✓ Gateway is running (PID: 1234, 5678)\n  (Running manually, not as a system service)\n')).toBe('Running')
     expect(parseGatewayStatus('✓ Gateway is running via the default-profile multiplexer\n')).toBe('Running')
     expect(parseGatewayStatus('✗ user gateway service is stopped\n')).toBe('Stopped')
-    expect(parseGatewayStatus("Profile 'leadengineer': parked (hermes -p leadengineer gateway start)\n")).toBe('Stopped')
+    expect(parseGatewayStatus("Profile 'coder': parked (hermes -p coder gateway start)\n")).toBe('Stopped')
   })
 })
 
 describe('Hermes kanban list --json', () => {
   it('keeps only safe task fields and normalizes status', () => {
     const output = JSON.stringify([
-      { id: 't_1a2b3c4d', title: 'Draft Q3 report', body: 'secret body', assignee: 'leadengineer', status: 'running', priority: 2, workspace_path: '/home/me/x' },
+      { id: 't_1a2b3c4d', title: 'Draft Q3 report', body: 'secret body', assignee: 'coder', status: 'running', priority: 2, workspace_path: '/home/me/x' },
       { id: 't_9f8e7d6c', title: 'Triage inbox', body: null, assignee: null, status: 'Triage', priority: 0 },
     ], null, 2)
     expect(parseTasks(output)).toEqual([
-      { id: 't_1a2b3c4d', title: 'Draft Q3 report', assignee: 'leadengineer', status: 'running', priority: 2 },
+      { id: 't_1a2b3c4d', title: 'Draft Q3 report', assignee: 'coder', status: 'running', priority: 2 },
       { id: 't_9f8e7d6c', title: 'Triage inbox', status: 'triage', priority: 0 },
     ])
   })
@@ -235,7 +234,7 @@ describe('Hermes logs', () => {
 describe('Office attribution', () => {
   it('prefers a running task over an earlier finished one for the same agent', () => {
     const at = '2026-09-27T12:00:00.000Z'
-    const runtime = { profiles: { availability: 'available' as const, data: [] }, gateways: { default: { availability: 'available' as const, data: 'Running' as const }, leadEngineer: { availability: 'available' as const, data: 'Running' as const } }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
+    const runtime = { profiles: { availability: 'available' as const, data: [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }] }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
     const office = buildOfficeSnapshot(runtime, { tasks: { availability: 'available', data: [{ title: 'Old', status: 'done', assignee: 'default' }, { title: 'Now', status: 'running', assignee: 'default' }] }, fetchedAt: at }, { sessions: { availability: 'available', data: [] }, fetchedAt: at }, { now: at })
     expect(office.stations[0]).toMatchObject({ state: 'Working', currentTask: 'Now' })
   })
@@ -244,7 +243,7 @@ describe('Office attribution', () => {
 describe('Dashboard aggregation', () => {
   it('counts tasks by status, jobs, skills and channels', () => {
     const at = '2026-09-27T12:00:00.000Z'
-    const runtime = { profiles: { availability: 'available' as const, data: [] }, gateways: { default: { availability: 'available' as const, data: 'Running' as const }, leadEngineer: { availability: 'available' as const, data: 'Stopped' as const } }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
+    const runtime = { profiles: { availability: 'available' as const, data: [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Stopped' as const }] }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
     const board = { tasks: { availability: 'available' as const, data: [{ title: 'a', status: 'todo' }, { title: 'b', status: 'todo', assignee: 'default' }, { title: 'c', status: 'done' }] }, fetchedAt: at }
     const activity = { sessions: { availability: 'available' as const, data: [{ title: 's', preview: '', lastActive: 'now', id: 'abcdef1' }] }, fetchedAt: at }
     const dashboard = buildDashboard({

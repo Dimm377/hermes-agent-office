@@ -5,7 +5,7 @@ import { collectTaskDetail, parseTaskDetail } from './mission-control.js'
 const show = {
   task: {
     id: 't_1a2b3c4d', title: 'Wire Telegram alerts', body: 'Send alerts to chat.\nUse token=abcdefghijklmnopqrstu', assignee: 'default', status: 'running', priority: 2,
-    tenant: null, workspace_kind: 'worktree', workspace_path: '/home/ubuntu/work/alerts', branch_name: 'feat/alerts', project_id: null, created_by: 'leadengineer',
+    tenant: null, workspace_kind: 'worktree', workspace_path: '/home/ubuntu/work/alerts', branch_name: 'feat/alerts', project_id: null, created_by: 'coder',
     created_at: 1790500000, started_at: 1790500600, completed_at: null, result: null, skills: ['github-pr'], max_runtime_seconds: null, max_retries: null,
     model_override: 'anthropic/claude-sonnet-4', provider_override: null, session_id: 's1', workflow_template_id: null, current_step_key: null, completion_contract: null, last_failure_error: null,
   },
@@ -22,7 +22,7 @@ describe('Kanban task detail', () => {
     expect(detail).toMatchObject({
       id: 't_1a2b3c4d', title: 'Wire Telegram alerts', status: 'running', assignee: 'default', priority: 2,
       workspace: 'worktree @ ~/work/alerts', branch: 'feat/alerts', skills: ['github-pr'], model: 'anthropic/claude-sonnet-4',
-      createdBy: 'leadengineer', createdAt: new Date(1790500000 * 1000).toISOString(), result: 'Half done: webhook wired.',
+      createdBy: 'coder', createdAt: new Date(1790500000 * 1000).toISOString(), result: 'Half done: webhook wired.',
       parents: ['t_0000aaaa'], children: [],
       comments: [{ author: 'reviewer', body: 'Please add retries' }],
       events: [{ kind: 'claimed', detail: '{"profile":"default"}', runId: '7' }],

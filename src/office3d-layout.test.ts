@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_SEATS, PAN_BOUNDS, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
-  name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', room: 'Workspace', roomPosition: 'assigned-desk',
+  id: 'default', name: 'default', role: 'Hermes profile', room: 'Workspace', roomPosition: 'assigned-desk',
   state: 'Working', currentTask: '', recentActivity: '', activity: '', seat: 1, provenance: '', freshness: '', ...overrides,
 })
 
@@ -16,7 +16,7 @@ describe('3D office placement', () => {
   })
 
   it('walks collaborating agents to the meeting table and idle agents to the lounge', () => {
-    expect(placementFor(station({ state: 'Collaborating', roomPosition: 'meeting-area', seat: 3 })).position).toEqual(MEETING_SEATS[2])
+    expect(placementFor(station({ state: 'Collaborating', roomPosition: 'meeting-area', seat: 3 }), undefined, 2).position).toEqual(meetingSeat(2).position)
     expect(placementFor(station({ state: 'Idle', room: 'Lounge', roomPosition: 'lounge-seat-2', seat: 2 }))).toMatchObject({ position: LOUNGE_SEATS[1], seated: true })
   })
 
@@ -90,9 +90,43 @@ describe('idle agents', () => {
     for (let step = 0; step < IDLE_ROUTE.length; step += 1) seen.add(idleStop(1, step * IDLE_STOP_MS).stop.key)
     expect(seen).toEqual(new Set(IDLE_STOPS.map((stop) => stop.key)))
     for (let step = 0; step < IDLE_ROUTE.length; step += 1) {
-      const spots = [1, 2, 3].map((seat) => idleStop(seat, step * IDLE_STOP_MS).placement.position.join(','))
+      const plan = idlePlan([1, 2, 3], step * IDLE_STOP_MS)
+      const spots = [1, 2, 3].map((seat) => plan.get(seat)!.placement.position.join(','))
       expect(new Set(spots).size).toBe(3)
     }
     expect(idleStop(1, 5)).toEqual(idleStop(1, IDLE_STOP_MS - 1))
+  })
+})
+
+describe('office for any crew size', () => {
+  it('has one desk per agent and widens the building to the left only when needed', () => {
+    expect(createLayout(3).desks).toHaveLength(3)
+    expect(createLayout(3).building.minX).toBe(BUILDING.minX)
+    expect(createLayout(6).building.minX).toBe(BUILDING.minX)
+    const twelve = createLayout(12)
+    expect(twelve.desks).toHaveLength(12)
+    expect(twelve.building.minX).toBeLessThan(BUILDING.minX)
+    expect(new Set(twelve.desks.map((desk) => desk.join(','))).size).toBe(12)
+    for (const [x] of twelve.desks) expect(x).toBeGreaterThan(twelve.building.minX + 1)
+    // Everything in the gang moves with the wall, and the camera backs off to fit.
+    expect(twelve.sideLaneX).toBeLessThan(twelve.building.minX)
+    expect(twelve.baksoCart[0]).toBeLessThan(twelve.sideLaneX)
+    expect(Math.hypot(...twelve.camera.offset)).toBeGreaterThan(Math.hypot(...createLayout(3).camera.offset))
+  })
+
+  it('gives every agent at the meeting table its own place on the aisle side', () => {
+    const seats = Array.from({ length: 10 }, (_, index) => meetingSeat(index).position.join(','))
+    expect(new Set(seats).size).toBe(10)
+    for (let index = 0; index < 10; index += 1) expect(meetingSeat(index).position[2]).toBeLessThanOrEqual(MEETING_TABLE[2] + 0.001)
+  })
+
+  it('never puts two idle agents on the same spot while free spots remain', () => {
+    const layout = createLayout(12)
+    const seats = Array.from({ length: 12 }, (_, index) => index + 1)
+    for (let step = 0; step < IDLE_ROUTE.length; step += 1) {
+      const plan = idlePlan(seats, step * IDLE_STOP_MS, layout)
+      const spots = seats.map((seat) => plan.get(seat)!.placement.position.join(','))
+      expect(new Set(spots).size).toBe(12)
+    }
   })
 })

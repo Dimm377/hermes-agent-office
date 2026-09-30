@@ -11,7 +11,8 @@ const LOG_TAIL_LINES = 200
 export type Availability = 'available' | 'unavailable'
 export type GatewayState = 'Running' | 'Stopped' | 'Unknown'
 
-export interface Profile { name: string; model: string }
+/** A Hermes profile; every profile is one agent. `gateway` comes from the profile list. */
+export interface Profile { name: string; model: string; gateway: GatewayState }
 export interface Source<T> {
   availability: Availability
   data: T
@@ -19,7 +20,6 @@ export interface Source<T> {
 }
 export interface RuntimeSnapshot {
   profiles: Source<Profile[]>
-  gateways: { default: Source<GatewayState>; leadEngineer: Source<GatewayState> }
   openCode: Source<string>
   fetchedAt: string
 }
@@ -38,10 +38,10 @@ export interface ChannelSnapshot { channels: Source<Channel[]>; activeSessions?:
 export type OfficeState = 'Idle' | 'Working' | 'Reviewing' | 'Collaborating' | 'Offline' | 'Unknown'
 export type OfficeRoom = 'Workspace' | 'Lounge'
 export interface OfficeStation {
-  name: 'Lead Agent' | 'Lead Engineer' | 'OpenCode'
+  /** Agent id: the Hermes profile name, or `opencode`. Also the key for its folder and memory. */
+  id: string
+  name: string
   role: string
-  avatar: string
-  workstation: string
   room: OfficeRoom
   roomPosition: string
   state: OfficeState
@@ -149,13 +149,9 @@ function profileRows(output: string): ProfileRow[] {
 }
 
 export function parseProfiles(output: string): Profile[] {
-  const profiles = profileRows(output).map(({ name, model }) => ({ name, model }))
+  const profiles = profileRows(output)
   if (profiles.length === 0) throw new Error('Unrecognized profile output.')
   return profiles
-}
-
-function parseDefaultProfileGateway(output: string): GatewayState {
-  return profileRows(output).find((row) => row.name === 'default')?.gateway ?? 'Unknown'
 }
 
 export function parseGatewayStatus(output: string): GatewayState {
@@ -467,24 +463,21 @@ async function read<T>(run: Run, file: string, args: string[], parse: (output: s
 // ---------------------------------------------------------------------------
 // Collectors
 
+/** Profile names passed to `hermes -p`: plain names only, never anything that looks like an option. */
+export const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
+
 export async function collectSnapshot(run: Run = systemRun): Promise<RuntimeSnapshot> {
-  const [profileData, leadEngineerGateway, openCode] = await Promise.all([
-    read(run, 'hermes', ['profile', 'list'], (output) => ({ profiles: parseProfiles(output), gateway: parseDefaultProfileGateway(output) }), { profiles: [], gateway: 'Unknown' as GatewayState }),
-    read(run, 'hermes', ['-p', 'leadengineer', 'gateway', 'status'], parseGatewayStatus, 'Unknown'),
+  const [profiles, openCode] = await Promise.all([
+    read(run, 'hermes', ['profile', 'list'], parseProfiles, []),
     read(run, 'opencode', ['--version'], (value) => value.trim().split('\n').pop()?.trim() || 'Unknown', 'Unknown'),
   ])
-  const profiles: Source<Profile[]> = { availability: profileData.availability, data: profileData.data.profiles, ...(profileData.error && { error: profileData.error }) }
-  const defaultGateway: Source<GatewayState> = { availability: profileData.availability, data: profileData.availability === 'available' ? profileData.data.gateway : 'Unknown', ...(profileData.error && { error: profileData.error }) }
-  return { profiles, gateways: { default: defaultGateway, leadEngineer: leadEngineerGateway }, openCode, fetchedAt: new Date().toISOString() }
+  return { profiles, openCode, fetchedAt: new Date().toISOString() }
 }
 
 export async function collectTaskBoard(run: Run = systemRun): Promise<TaskBoardSnapshot> {
   const tasks = await read(run, 'hermes', ['kanban', 'list', '--json'], parseTasks, [])
   return { tasks, fetchedAt: new Date().toISOString() }
 }
-
-/** Profile names passed to `hermes -p`: plain names only, never anything that looks like an option. */
-const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
 
 /**
  * Cron jobs of every Hermes profile. Hermes stores cron per profile, so each profile from
@@ -653,7 +646,8 @@ export async function collectTaskDetail(id: string, run: Run = systemRun): Promi
 // session active in the last few minutes is direct, attributable evidence of work.
 
 export const ACTIVITY_WINDOW = '3m'
-const ACTIVITY_PROFILES = ['default', 'leadengineer'] as const
+/** At most this many profiles are probed at once, so many profiles do not flood the machine. */
+const ACTIVITY_CONCURRENCY = 4
 const LOG_RECORD = /^(\d{4}-\d{2}-\d{2}[ T][\d:,.]+)\s+[A-Z]+(?:\s+\[[^\]]*\])?\s+([\w.]+):\s?(.*)$/
 const CHAT_MESSAGE = /\b(message|reply|replied|respond|inbound|outbound|received|sending|sent|chat)\b/i
 const ACTIVITY_LABELS: Record<ActivityKind, string> = {
@@ -695,26 +689,40 @@ export function parseRecentActivity(logOutput: string, sessionOutput?: string): 
   return { active: kind !== undefined, ...(kind ? { kind, label: ACTIVITY_LABELS[kind] } : {}), ...(lastSeen ? { lastSeen } : {}), mentionsOpenCode }
 }
 
-export async function collectAgentActivity(run: Run = systemRun): Promise<AgentActivitySnapshot> {
-  const agents = await Promise.all(ACTIVITY_PROFILES.map(async (profile): Promise<AgentActivity> => {
+/** Runs `task` over `items` with at most `limit` in flight, keeping the input order. */
+async function mapLimit<T, R>(items: readonly T[], limit: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  const worker = async () => { while (next < items.length) { const index = next++; results[index] = await task(items[index]) } }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
+/** Live activity of every given Hermes profile (see `hermes profile list`). */
+export async function collectAgentActivity(profiles: readonly string[], run: Run = systemRun): Promise<AgentActivitySnapshot> {
+  const agents = await mapLimit(profiles.filter((profile) => PROFILE_NAME.test(profile)), ACTIVITY_CONCURRENCY, async (profile): Promise<AgentActivity> => {
     const [logs, sessions] = await Promise.all([
       run('hermes', ['-p', profile, 'logs', 'agent', '-n', '80', '--since', ACTIVITY_WINDOW], { benign: LOG_MISSING }).then((output) => ({ ok: true as const, output }), (error: unknown) => (error instanceof CommandError && LOG_MISSING.test(error.stdout) ? { ok: true as const, output: '' } : { ok: false as const, output: '' })),
       run('hermes', ['-p', profile, 'sessions', 'list', '--limit', '3']).then((output) => output, () => undefined),
     ])
     if (!logs.ok && sessions === undefined) return { profile, availability: 'unavailable', active: false, mentionsOpenCode: false }
     return { profile, availability: 'available', ...parseRecentActivity(logs.output, sessions) }
-  }))
+  })
   return { agents, fetchedAt: new Date().toISOString() }
 }
 
 // ---------------------------------------------------------------------------
 // Office
 
-const officeMetadata = [
-  { name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', profile: 'default', aliases: ['default', 'lead agent', 'lead-agent', 'leadagent'] },
-  { name: 'Lead Engineer', role: 'Lead Engineer', avatar: 'lead-engineer', workstation: 'Engineering desk', profile: 'leadengineer', aliases: ['leadengineer', 'lead engineer', 'lead-engineer'] },
-  { name: 'OpenCode', role: 'OpenCode', avatar: 'opencode', workstation: 'Build terminal', profile: undefined, aliases: ['opencode', 'open-code'] },
-] as const
+/** One office station per agent: every Hermes profile, plus OpenCode when it is installed. */
+interface AgentSpec { id: string; role: string; profile?: string; gateway?: GatewayState; aliases: string[] }
+
+export function agentRoster(runtime: RuntimeSnapshot): AgentSpec[] {
+  const profiles = runtime.profiles.availability === 'available' ? runtime.profiles.data : []
+  const agents: AgentSpec[] = profiles.filter((profile) => PROFILE_NAME.test(profile.name)).map((profile) => ({ id: profile.name, role: 'Hermes profile', profile: profile.name, gateway: profile.gateway, aliases: [profile.name.toLowerCase()] }))
+  if (runtime.openCode.availability === 'available' && !agents.some((agent) => agent.id === 'opencode')) agents.push({ id: 'opencode', role: 'OpenCode', aliases: ['opencode', 'open-code'] })
+  return agents
+}
 
 export const officeRooms = [
   { id: 'Workspace', label: 'Workspace', description: 'Desks, collaboration, and neutral presence positions.' },
@@ -749,8 +757,8 @@ function isFresh(fetchedAt: string, now: number): boolean {
   return Number.isFinite(timestamp) && timestamp <= now + 1_000 && now - timestamp <= 30_000
 }
 
-function explicitState(metadata: typeof officeMetadata[number], states: ExplicitOfficeState[], now: number): OfficeState | undefined {
-  return states.find((record) => record.station === metadata.name && Date.parse(record.expiresAt) > now)?.state
+function explicitState(agent: AgentSpec, states: ExplicitOfficeState[], now: number): OfficeState | undefined {
+  return states.find((record) => record.station === agent.id && Date.parse(record.expiresAt) > now)?.state
 }
 
 function roomForState(state: OfficeState, index: number): Pick<OfficeStation, 'room' | 'roomPosition'> {
@@ -763,26 +771,26 @@ function roomForState(state: OfficeState, index: number): Pick<OfficeStation, 'r
 }
 
 export function buildOfficeSummary(stations: OfficeStation[], runtime: RuntimeSnapshot): OfficeSummary {
-  const gateways = [runtime.gateways.default, runtime.gateways.leadEngineer]
+  const gateways = runtime.profiles.availability === 'available' ? runtime.profiles.data.map((profile) => profile.gateway) : []
   return {
     declared: stations.length,
     active: stations.filter((station) => ['Working', 'Reviewing', 'Collaborating'].includes(station.state)).length,
     idle: stations.filter((station) => station.state === 'Idle').length,
     offline: stations.filter((station) => station.state === 'Offline').length,
     unknown: stations.filter((station) => station.state === 'Unknown').length,
-    gatewaysReachable: gateways.filter((gateway) => gateway.availability === 'available' && gateway.data === 'Running').length,
+    gatewaysReachable: gateways.filter((gateway) => gateway === 'Running').length,
     gatewaysDeclared: gateways.length,
   }
 }
 
-function liveState(metadata: typeof officeMetadata[number], snapshot: AgentActivitySnapshot | undefined): { state: OfficeState; probe?: AgentActivity; known: boolean } {
+function liveState(agent: AgentSpec, snapshot: AgentActivitySnapshot | undefined): { state: OfficeState; probe?: AgentActivity; known: boolean } {
   if (!snapshot) return { state: 'Unknown', known: true }
-  if (!metadata.profile) {
+  if (!agent.profile) {
     // OpenCode has no Hermes profile; it counts as working when an agent's recent log shows it being driven.
     const driver = snapshot.agents.find((agent) => agent.mentionsOpenCode)
     return { state: driver ? 'Working' : 'Unknown', probe: driver && { ...driver, label: 'Building via OpenCode' }, known: snapshot.agents.every((agent) => agent.availability === 'available') }
   }
-  const probe = snapshot.agents.find((agent) => agent.profile === metadata.profile)
+  const probe = snapshot.agents.find((item) => item.profile === agent.profile)
   if (!probe || probe.availability === 'unavailable') return { state: 'Unknown', probe, known: false }
   return { state: probe.active ? (probe.kind === 'chat' ? 'Collaborating' : 'Working') : 'Unknown', probe, known: true }
 }
@@ -795,37 +803,36 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
   const freshActivity = activity.sessions.availability === 'available' && isFresh(activity.fetchedAt, now)
   const agentActivity = options.agentActivity && isFresh(options.agentActivity.fetchedAt, now) ? options.agentActivity : undefined
   const explicitStates = options.explicitStates ?? []
-  const stations = officeMetadata.map((metadata, index): OfficeStation => {
-    const gateway = index === 0 ? runtime.gateways.default : index === 1 ? runtime.gateways.leadEngineer : undefined
-    const task = freshBoard ? attributedTask(board.tasks.data, metadata.aliases) : undefined
-    const overlay = explicitState(metadata, explicitStates, now)
+  const stations = agentRoster(runtime).map((agent, index): OfficeStation => {
+    const gateway = agent.gateway
+    const task = freshBoard ? attributedTask(board.tasks.data, agent.aliases) : undefined
+    const overlay = explicitState(agent, explicitStates, now)
     const taskWorkState = taskState(task)
-    const live = liveState(metadata, agentActivity)
-    const collaboration = freshActivity ? collaborationState(activity.sessions.data, metadata.aliases) : 'Unknown'
-    const stopped = gateway?.availability === 'available' && gateway.data === 'Stopped'
+    const live = liveState(agent, agentActivity)
+    const collaboration = freshActivity ? collaborationState(activity.sessions.data, agent.aliases) : 'Unknown'
+    const stopped = gateway === 'Stopped'
     const liveKnown = options.agentActivity ? agentActivity !== undefined && live.known : true
-    // Direct evidence of work in the last few minutes wins over a stopped gateway (CLI and cron
-    // work does not need the gateway); a Kanban task explains that work when it is running.
+    // A stopped gateway only means the agent is not listening on messaging platforms; many agents
+    // are used from the CLI and never run one, so it does not make an agent Offline. Direct
+    // evidence of work wins; a Kanban task explains that work when it is running.
     const direct: OfficeState | undefined = overlay ?? (live.state !== 'Unknown' ? (taskWorkState !== 'Unknown' ? taskWorkState : live.state) : undefined)
-    const state: OfficeState = direct ?? (stopped ? 'Offline' : taskWorkState !== 'Unknown' ? taskWorkState : collaboration !== 'Unknown' ? collaboration : freshRuntime && freshBoard && freshActivity && liveKnown ? 'Idle' : 'Unknown')
+    const state: OfficeState = direct ?? (taskWorkState !== 'Unknown' ? taskWorkState : collaboration !== 'Unknown' ? collaboration : freshRuntime && freshBoard && freshActivity && liveKnown ? 'Idle' : 'Unknown')
     const currentTask = board.tasks.availability === 'unavailable' ? 'Not Available' : task?.title ?? 'No attributed task'
     const activityLabel = state === 'Working' && taskWorkState === 'Working' && task ? `Kanban: ${task.title}`
       : state === 'Reviewing' && task ? `Reviewing: ${task.title}`
         : ['Working', 'Collaborating'].includes(state) && live.probe?.label ? live.probe.label
-          : state === 'Offline' ? 'Gateway stopped'
-            : state === 'Idle' ? 'On a break'
+          : state === 'Idle' ? stopped ? 'On a break · gateway stopped' : 'On a break'
               : ''
     const recentActivity = live.probe
       ? live.probe.active ? `${live.probe.label ?? 'Active'}${live.probe.lastSeen ? ` (last log ${live.probe.lastSeen})` : ''}` : `No activity in the last ${ACTIVITY_WINDOW}`
       : activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
-    const runtimeProvenance = gateway ? `Gateway ${gateway.availability === 'available' ? gateway.data : 'Not Available'}` : 'OpenCode version availability is not a state signal'
+    const runtimeProvenance = agent.profile ? `Gateway ${gateway ?? 'Unknown'} (hermes profile list)` : 'OpenCode version availability is not a state signal'
     const managedIdle = state === 'Idle' ? '; Ruang managed-idle placement policy (not agent-reported presence)' : ''
-    const liveProvenance = options.agentActivity ? `; live activity (${metadata.profile ? `hermes -p ${metadata.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
+    const liveProvenance = options.agentActivity ? `; live activity (${agent.profile ? `hermes -p ${agent.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
     return {
-      name: metadata.name,
-      role: metadata.role,
-      avatar: metadata.avatar,
-      workstation: metadata.workstation,
+      id: agent.id,
+      name: agent.id,
+      role: agent.role,
       ...roomForState(state, index),
       seat: index + 1,
       state,
@@ -891,7 +898,10 @@ const knowledgeSource = cachedSource(() => collectKnowledge())
 const channelSource = cachedSource(() => collectChannels())
 const insightsSource = cachedSource(() => collectInsights(), INSIGHTS_CACHE_MS)
 const logsSource = cachedSource(() => collectLogs(), 5_000)
-const agentActivitySource = cachedSource(() => collectAgentActivity())
+const agentActivitySource = cachedSource(async () => {
+  const runtime = await getSnapshot()
+  return collectAgentActivity(runtime.profiles.availability === 'available' ? runtime.profiles.data.map((profile) => profile.name) : [])
+}, 15_000)
 
 export function getSnapshot(now = Date.now()): Promise<RuntimeSnapshot> { return runtimeSource(now) }
 export function clearSnapshotCache(): void { runtimeSource.clear() }

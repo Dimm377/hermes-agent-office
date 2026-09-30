@@ -2,8 +2,8 @@ export type Availability = 'available' | 'unavailable'
 export type GatewayState = 'Running' | 'Stopped' | 'Unknown'
 export interface Source<T> { availability: Availability; data: T; error?: { code: string; message: string } }
 export interface RuntimeSnapshot {
-  profiles: Source<{ name: string; model: string }[]>
-  gateways: { default: Source<GatewayState>; leadEngineer: Source<GatewayState> }
+  /** Every Hermes profile is an agent; `gateway` comes from `hermes profile list`. */
+  profiles: Source<{ name: string; model: string; gateway: GatewayState }[]>
   openCode: Source<string>
   fetchedAt: string
 }
@@ -22,10 +22,10 @@ export interface ChannelSnapshot { channels: Source<Channel[]>; activeSessions?:
 export type OfficeState = 'Idle' | 'Working' | 'Reviewing' | 'Collaborating' | 'Offline' | 'Unknown'
 export type OfficeRoom = 'Workspace' | 'Lounge'
 export interface OfficeStation {
-  name: 'Lead Agent' | 'Lead Engineer' | 'OpenCode'
+  /** Agent id: the Hermes profile name, or `opencode`. Also the key for its folder and memory. */
+  id: string
+  name: string
   role: string
-  avatar: string
-  workstation: string
   room: OfficeRoom
   roomPosition: string
   state: OfficeState

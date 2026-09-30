@@ -6,7 +6,7 @@ import type { OfficeStation } from './types.ts'
 describe('OfficeDetail', () => {
   it('renders a labelled in-page dialog with station metadata, evidence, and a close control', () => {
     const station: OfficeStation = {
-      name: 'Lead Engineer', role: 'Lead Engineer', avatar: 'LE', workstation: 'Engineering desk', room: 'Workspace', roomPosition: 'review-desk',
+      id: 'coder', name: 'coder', role: 'Hermes profile', room: 'Workspace', roomPosition: 'review-desk',
       state: 'Reviewing', currentTask: 'Review office behavior', recentActivity: 'No attributed recent activity',
       activity: 'Reviewing: Review office behavior', seat: 2, provenance: 'Gateway Running; explicit state records: none; Kanban: available; activity: available',
       freshness: 'Runtime 2026-09-27T12:00:00.000Z; Kanban 2026-09-27T12:00:00.000Z; activity 2026-09-27T12:00:00.000Z',
@@ -16,8 +16,8 @@ describe('OfficeDetail', () => {
 
     expect(markup).toContain('role="dialog"')
     expect(markup).toContain('aria-modal="true"')
-    expect(markup).toContain('aria-label="Close Lead Engineer details"')
-    expect(markup).toContain('Engineering desk')
+    expect(markup).toContain('aria-label="Close coder details"')
+    expect(markup).toContain('Hermes profile')
     expect(markup).toContain('Current room')
     expect(markup).toContain('Workspace')
     expect(markup).toContain('Review office behavior')
@@ -30,7 +30,7 @@ describe('OfficeDetail', () => {
 describe('Office characters', () => {
   it('renders CSS pixel character anatomy without printing avatar tokens', () => {
     const station: OfficeStation = {
-      name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', room: 'Lounge', roomPosition: 'lounge-seat-1',
+      id: 'default', name: 'default', role: 'Hermes profile', room: 'Lounge', roomPosition: 'lounge-seat-1',
       state: 'Idle', currentTask: 'No attributed task', recentActivity: 'No attributed recent activity',
       activity: 'On a break', seat: 1, provenance: 'Ruang managed-idle placement policy', freshness: 'Runtime current',
     }

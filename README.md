@@ -58,11 +58,11 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
 
 ## Pages
 
-- **Agents**: the declared chain (Lead Agent → Lead Engineer → OpenCode) with profile, model and gateway state, plus any other Hermes profiles.
+- **Agents**: every agent on this machine, with model, gateway state and what it is doing in the office. Agents are discovered, not configured: every Hermes profile from `hermes profile list` is an agent, plus OpenCode when it is installed. New profiles appear automatically, and each agent gets its own character colours derived from its name.
 - **Office** (home page): the office fills the screen below the header. A HUD across the top shows crew active, gateways running, running/open tasks, the next cron run and (when any) failed CLI reads; chips link to their page. The **Panel** button opens one side panel with three tabs: **Crew** (crew snapshot and a clickable list of stations), **Stats** (statistics across every source, 7-day usage from `hermes insights`, the Kanban status breakdown, runtime and what is up next; tiles link to their pages) and **Activity** (unattributed session metadata and messaging channels). The **Tasks** and **Calendar** buttons open the Task Board or a month calendar of cron runs over the office, without leaving it (Esc or ✕ closes them; *Open full page* goes to the page). `#/dashboard` opens the Office.
 
   The view switches between **3D** (the default) and **2D**, remembered per browser; browsers without WebGL stay on 2D. The 3D view (three.js via React Three Fiber, loaded only when used) is an office of several rooms with an Indonesian touch:
-  - the workspace: a parquet floor, desks with monitors, and a meeting area with gorengan (fried snacks) on the table
+  - the workspace: hot desking, with one unlabeled desk per agent in two rows (the building widens for a larger crew), and a meeting table with gorengan (fried snacks) on it
   - a lounge behind a glass partition, where the sofa faces a TV on the back wall
   - a game room through a door from the lounge: ping-pong, two arcade machines, a console corner with beanbags, and a karambol (carrom) board
   - a pantry with a galon (water-jug) dispenser
@@ -83,7 +83,7 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
   - the memory settings (enabled stores, `write_approval`, external provider)
 
   OpenCode shows its global `AGENTS.md`/`CLAUDE.md`. Entries are searchable. Everything is read through the Folders safety layer, so it is read-only, confined to the agent's folder and secret-redacted. `#/knowledge` opens this page.
-- **Folders**: one folder per agent, and only that agent's folder: Lead Agent → `~/.hermes/profiles/default`, Lead Engineer → `~/.hermes/profiles/leadengineer`, OpenCode → `~/.opencode`. Browse sub-folders and view files read-only. See *Folders* below.
+- **Folders**: one folder per agent, and only that agent's folder: a Hermes profile `<name>` → `~/.hermes/profiles/<name>`, OpenCode → `~/.opencode`. Browse sub-folders and view files read-only. See *Folders* below.
 - **Logs**: tails of `hermes logs agent|gateway|errors` with level filter, search and follow mode, plus an audit of every command the server ran (the *Command audit* tab).
 
 Navigation is a drawer, closed by default like a game menu: open it with the ☰ button or the **M** key, and close it with Esc, a click outside, or by choosing a page. A dot on ☰ flags failed CLI reads or stopped gateways. The header has one light/dark theme toggle (remembered per browser) and Refresh. All pages poll automatically, keep the last good data (marked stale) if a refresh fails, and have a manual refresh. "Refresh all" bypasses the 10-second server cache for anything older than 2 seconds. Pages are addressable by URL hash (for example `#/task-board`).
@@ -91,11 +91,11 @@ Navigation is a drawer, closed by default like a game menu: open it with the ☰
 ## Data and safety
 
 The server uses only these fixed, read-only commands:
-- `hermes profile list`, `hermes -p leadengineer gateway status`, `opencode --version`
+- `hermes profile list` (the agents and their gateway states), `opencode --version`
 - `hermes kanban list --json`, `hermes kanban show <id> --json` (task detail)
 - `hermes -p <profile> cron list --all` for every profile in `hermes profile list` (Hermes keeps cron jobs per profile), `hermes sessions list --limit 20`, `hermes skills list --enabled-only`
 - `hermes status --all`, `hermes insights --days 7`, `hermes logs <agent|gateway|errors> -n 200`
-- for live Office activity: `hermes -p <default|leadengineer> logs agent -n 80 --since 3m` and `hermes -p <default|leadengineer> sessions list --limit 3`
+- for live Office activity, for every profile (at most four at a time): `hermes -p <profile> logs agent -n 80 --since 3m` and `hermes -p <profile> sessions list --limit 3`
 
 How they run:
 - Commands run with `NO_COLOR=1` and a wide `COLUMNS` so the plain-text formats parse reliably.
@@ -124,52 +124,45 @@ Empty source results remain available and show truthful empty states; unparseabl
 
 ## Office
 
-`/api/office` is a read-only composition of the existing cached runtime, Kanban and activity reads. It has three fixed stations: Lead Agent (command desk), Lead Engineer (engineering desk) and OpenCode (build terminal). Their declared role, character palette, workstation and CSS pixel character anatomy are static metadata. The 2D view provides CSS-only Workspace and Lounge rooms: Workspace contains desks and collaboration details, and Lounge places idle characters beside the sofa and chairs. No image or art assets are used.
+`/api/office` is a read-only composition of the existing cached runtime, Kanban and activity reads. It has one station per agent (every Hermes profile, plus OpenCode when installed), in the order `hermes profile list` gives them. Desks are hot desks: there is one per agent and none carries a name. Character colours are derived from the agent name, so they are the same on every device. The 2D view lays out Workspace (desks and the meeting table) and Lounge for any number of agents with CSS only; no image or art assets are used.
 
-Office state is always one of `Idle`, `Working`, `Reviewing`, `Collaborating`, `Offline` or `Unknown`. The precedence is:
-1. A direct station-bound `Stopped` gateway marks Lead Agent or Lead Engineer `Offline`.
-2. A fresh, unexpired internal explicit-state overlay can declare `Working`, `Reviewing` or `Collaborating`.
-3. A fresh Kanban task explicitly assigned to the station maps `running` to `Working` and `review` to `Reviewing`.
+Office state is one of `Idle`, `Working`, `Reviewing`, `Collaborating` or `Unknown` (`Offline` is reserved and not produced). The precedence is:
+1. A fresh, unexpired internal explicit-state overlay can declare `Working`, `Reviewing` or `Collaborating`.
+2. Live activity (below), labelled with the agent's running/review Kanban task when there is one.
+3. A fresh Kanban task explicitly assigned to the agent maps `running` to `Working` and `review` to `Reviewing`.
 4. A fresh actor-attributed active session maps to `Collaborating`.
 5. Otherwise, the managed-idle policy applies.
 
+A stopped gateway does not make an agent offline: it only means the agent is not listening on messaging platforms, and many agents are used from the CLI without one. It is shown on the Agents page and in the idle label (`On a break · gateway stopped`).
+
 Managed Idle is a transparent server placement policy, not agent-reported presence. It resolves only when all of these hold:
 - fresh runtime, Kanban and activity reads are available
-- the station-bound gateway is not stopped
 - there is no fresh explicit overlay
 - Kanban has no agent-attributed running/review task
 - activity has no agent-attributed active session
 
 It places the station in Lounge and labels it `Idle · managed placement`. Any unavailable or stale required input leaves the station `Unknown`. Gateway `Running`, generic sessions, unassigned Kanban tasks and OpenCode version availability cannot independently create an active state; OpenCode version availability is explicitly not a state signal.
 
-Current task and recent activity require actor attribution. The Office only shows a Kanban task when its explicit assignee matches the station aliases above. Hermes session-list metadata currently has no actor attribution, so the Activity panel labels it as unattributed session metadata and it is never assigned to a station. Failed task or activity sources keep the existing `Not Available` meaning: that is source availability, not an Office work state. Selecting a station opens an in-page, keyboard-accessible detail dialog with room, provenance and source freshness.
+Current task and recent activity require actor attribution. The Office only shows a Kanban task when its explicit assignee is the agent's profile name (or `opencode`). Hermes session-list metadata currently has no actor attribution, so the Activity panel labels it as unattributed session metadata and it is never assigned to a station. Failed task or activity sources keep the existing `Not Available` meaning: that is source availability, not an Office work state. Selecting a station opens an in-page, keyboard-accessible detail dialog with room, provenance and source freshness.
 
 State placement is visualized without inventing work:
-- `Working`, `Reviewing` and `Collaborating` are in Workspace.
-- `Idle` is in Lounge.
-- `Offline` is dimmed at its assigned workspace station.
-- `Unknown` is shown at a labelled neutral Workspace presence position.
+- `Working` and `Reviewing` are at a desk; `Collaborating` is at the meeting table (as many places as needed).
+- `Idle` is in Lounge (in 3D, wandering the office).
+- `Unknown` is shown at a desk with a labelled neutral presence.
 
-The crew snapshot counts declared stations, active work (`Working`/`Reviewing`/`Collaborating`), managed idle, offline and unknown separately. Gateway health (how many of the two station gateways report `Running`) is intentionally displayed as a separate metric. When a station has several Kanban tasks, the `running` one wins, then `review`, then the first open task.
+The crew snapshot counts agents, active work (`Working`/`Reviewing`/`Collaborating`), managed idle and unknown separately. Gateway health (how many profiles report their gateway `Running`) is displayed as a separate metric. When a station has several Kanban tasks, the `running` one wins, then `review`, then the first open task.
 
 `/api/channels` is a separate safe snapshot sourced only from the Messaging Platforms section and active-session count of `hermes status --all`; it never exposes unconfigured platforms or any other status content. The Office introduces no write endpoint, shell input or command beyond the fixed allowlist.
 
 ## Live activity in the Office
 
-Every Hermes profile writes all of its work to its own `agent.log`: messaging replies (gateway), cron runs, tool calls and the agent loop. For the two station profiles, the server reads the last 3 minutes of that log and the profile's most recent session:
+Every Hermes profile writes all of its work to its own `agent.log`: messaging replies (gateway), cron runs, tool calls and the agent loop. For every profile, the server reads the last 3 minutes of that log and the profile's most recent session (at most four profiles at a time, cached for 15 seconds):
 
 - Gateway message lines together with agent-loop or tool lines, or a session active in the last 3 minutes, become `Collaborating` ("Replying to a chat", at the meeting table).
 - `cron.*` becomes `Working` ("Running a scheduled job"); `tools.*` becomes `Working` ("Using tools"); `agent`/`run_agent` becomes `Working` ("Working on a request").
 - OpenCode is `Working` when a recent agent log line shows it being driven.
 
-The precedence is:
-1. explicit overlay
-2. live activity (a running/review Kanban task, when present, labels that work)
-3. stopped gateway (`Offline`)
-4. Kanban task
-5. managed `Idle` in the Lounge
-
-Live work outranks a stopped gateway because CLI and cron work do not need it. Gateway polling noise and CLI housekeeping lines are ignored.
+Gateway polling noise and CLI housekeeping lines are ignored.
 
 ## Folders
 
@@ -177,9 +170,9 @@ Each agent resolves to its own folder:
 
 | Agent | Folder |
 |---|---|
-| Lead Agent (`default`) | `<hermes root>/profiles/default`; only when that folder does not exist (stock Hermes layout), the Hermes root itself |
-| Lead Engineer and other Hermes profiles | `<hermes root>/profiles/<name>` |
-| OpenCode | `~/.opencode`, then `~/.config/opencode` (`RUANG_OPENCODE_DIR` overrides) |
+| `default` | `<hermes root>/profiles/default`; only when that folder does not exist (stock Hermes layout), the Hermes root itself |
+| every other Hermes profile | `<hermes root>/profiles/<name>` |
+| OpenCode (listed only when its folder exists) | `~/.opencode`, then `~/.config/opencode` (`RUANG_OPENCODE_DIR` overrides) |
 
 The Hermes root follows Hermes's own rules (`HERMES_HOME`, default `~/.hermes`); `RUANG_HERMES_ROOT` overrides it.
 - A non-default agent that resolves to the Hermes root, or to a folder another agent already owns, is shown as unavailable with the reason instead of being opened.

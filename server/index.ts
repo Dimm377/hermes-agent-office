@@ -51,7 +51,7 @@ app.get('/api/tasks/:id', async (request, response) => {
 })
 
 // Folders: read-only view of each agent's own folder. Only agents the server resolved
-// (declared stations, Hermes-reported profiles, OpenCode) can be opened.
+// (every Hermes profile this machine reports, and OpenCode when installed) can be opened.
 async function agentFolders() {
   const runtime = await getSnapshot()
   return resolveAgentFolders(runtime.profiles.data.map((profile) => profile.name))

@@ -15,9 +15,9 @@ import {
 } from './mission-control.js'
 
 describe('Hermes output parsers', () => {
-  it('extracts only profile and model from the profile table', () => {
-    expect(parseProfiles(' Profile    Model       Gateway\n ───────\n ◆default  gpt-5.6    running\n  leadengineer  gpt-5.5  running\n')).toEqual([
-      { name: 'default', model: 'gpt-5.6' }, { name: 'leadengineer', model: 'gpt-5.5' },
+  it('extracts profile, model and gateway state from the profile table', () => {
+    expect(parseProfiles(' Profile    Model       Gateway\n ───────\n ◆default  gpt-5.6    running\n  coder  gpt-5.5  stopped\n')).toEqual([
+      { name: 'default', model: 'gpt-5.6', gateway: 'Running' }, { name: 'coder', model: 'gpt-5.5', gateway: 'Stopped' },
     ])
   })
 
@@ -41,26 +41,26 @@ describe('Hermes output parsers', () => {
   it('treats unrecognized profile output as unavailable', async () => {
     const snapshot = await collectSnapshot(async (_file, args) => {
       if (args.join(' ') === 'profile list') return 'Hermes profile service is starting.'
-      if (args.join(' ') === '-p leadengineer gateway status') return 'running'
+      if (args.join(' ') === '-p coder gateway status') return 'running'
       return '1.0.0'
     })
 
     expect(snapshot.profiles).toMatchObject({ availability: 'unavailable', data: [], error: { code: 'COMMAND_FAILED' } })
-    expect(snapshot.gateways.default).toMatchObject({ availability: 'unavailable', data: 'Unknown' })
+
   })
 
   it('uses the default profile gateway state without invoking a separate default gateway command', async () => {
     const calls: string[][] = []
     const snapshot = await collectSnapshot(async (file, args) => {
       calls.push([file, ...args])
-      if (args.join(' ') === 'profile list') return ' Profile    Model       Gateway\n ───────\n ◆default  gpt-5.6    running\n  leadengineer  gpt-5.5  stopped\n'
-      if (args.join(' ') === '-p leadengineer gateway status') return 'running'
+      if (args.join(' ') === 'profile list') return ' Profile    Model       Gateway\n ───────\n ◆default  gpt-5.6    running\n  coder  gpt-5.5  stopped\n'
+      if (args.join(' ') === '-p coder gateway status') return 'running'
       return '1.0.0'
     })
 
-    expect(snapshot.gateways.default).toEqual({ availability: 'available', data: 'Running' })
-    expect(snapshot.gateways.leadEngineer).toEqual({ availability: 'available', data: 'Running' })
-    expect(calls).not.toContainEqual(['hermes', 'gateway', 'status'])
+    expect(snapshot.profiles.data.map((profile) => [profile.name, profile.gateway])).toEqual([['default', 'Running'], ['coder', 'Stopped']])
+    // Gateway states come from the profile list alone: no per-profile gateway command runs.
+    expect(calls.filter((call) => call.includes('gateway'))).toEqual([])
   })
 })
 
@@ -142,11 +142,7 @@ describe('Hermes MVP source normalizers', () => {
 
 describe('Office snapshot', () => {
   const runtime = {
-    profiles: { availability: 'available' as const, data: [] },
-    gateways: {
-      default: { availability: 'available' as const, data: 'Running' as const },
-      leadEngineer: { availability: 'available' as const, data: 'Running' as const },
-    },
+    profiles: { availability: 'available' as const, data: [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }] },
     openCode: { availability: 'available' as const, data: '1.0.0' },
     fetchedAt: '2026-09-27T12:00:00.000Z',
   }
@@ -155,9 +151,9 @@ describe('Office snapshot', () => {
     const office = buildOfficeSnapshot(runtime, { tasks: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { sessions: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { now: runtime.fetchedAt })
 
     expect(office.stations).toMatchObject([
-      { name: 'Lead Agent', room: 'Lounge', roomPosition: 'lounge-seat-1', state: 'Idle' },
-      { name: 'Lead Engineer', room: 'Lounge', roomPosition: 'lounge-seat-2', state: 'Idle' },
-      { name: 'OpenCode', room: 'Lounge', roomPosition: 'lounge-seat-3', state: 'Idle' },
+      { name: 'default', room: 'Lounge', roomPosition: 'lounge-seat-1', state: 'Idle' },
+      { name: 'coder', room: 'Lounge', roomPosition: 'lounge-seat-2', state: 'Idle' },
+      { name: 'opencode', room: 'Lounge', roomPosition: 'lounge-seat-3', state: 'Idle' },
     ])
     expect(office.stations[2].provenance).toContain('OpenCode version availability is not a state signal')
     expect(office.stations[0].provenance).toContain('Ruang managed-idle placement policy')
@@ -168,15 +164,15 @@ describe('Office snapshot', () => {
     const office = buildOfficeSnapshot(runtime, {
       tasks: { availability: 'available', data: [
         { title: 'Unassigned running work', status: 'running' },
-        { title: 'Review the office', status: 'review', assignee: 'Lead Engineer' },
+        { title: 'Review the office', status: 'review', assignee: 'coder' },
       ] },
       fetchedAt: '2026-09-27T12:00:00.000Z',
     }, { sessions: { availability: 'available', data: [] }, fetchedAt: '2026-09-27T12:00:00.000Z' }, { now: runtime.fetchedAt })
 
     expect(office.stations).toMatchObject([
-      { name: 'Lead Agent', role: 'Lead Agent', avatar: 'lead-agent', workstation: 'Command desk', room: 'Lounge', state: 'Idle', currentTask: 'No attributed task', recentActivity: 'No attributed recent activity' },
-      { name: 'Lead Engineer', room: 'Workspace', state: 'Reviewing', currentTask: 'Review the office', recentActivity: 'No attributed recent activity' },
-      { name: 'OpenCode', room: 'Lounge', state: 'Idle', currentTask: 'No attributed task' },
+      { id: 'default', name: 'default', role: 'Hermes profile', room: 'Lounge', state: 'Idle', currentTask: 'No attributed task', recentActivity: 'No attributed recent activity' },
+      { name: 'coder', room: 'Workspace', state: 'Reviewing', currentTask: 'Review the office', recentActivity: 'No attributed recent activity' },
+      { name: 'opencode', room: 'Lounge', state: 'Idle', currentTask: 'No attributed task' },
     ])
   })
 
@@ -191,9 +187,9 @@ describe('Office snapshot', () => {
   it('maps office states to rooms and keeps unknown agents in a labelled neutral workspace position', () => {
     const office = buildOfficeSnapshot(runtime, { tasks: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { sessions: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { now: runtime.fetchedAt })
     expect(office.stations).toMatchObject([
-      { name: 'Lead Agent', room: 'Lounge', roomPosition: 'lounge-seat-1' },
-      { name: 'Lead Engineer', room: 'Lounge', roomPosition: 'lounge-seat-2' },
-      { name: 'OpenCode', room: 'Lounge', roomPosition: 'lounge-seat-3' },
+      { name: 'default', room: 'Lounge', roomPosition: 'lounge-seat-1' },
+      { name: 'coder', room: 'Lounge', roomPosition: 'lounge-seat-2' },
+      { name: 'opencode', room: 'Lounge', roomPosition: 'lounge-seat-3' },
     ])
   })
 
@@ -202,17 +198,18 @@ describe('Office snapshot', () => {
     expect(buildOfficeSummary(office.stations, runtime)).toEqual({ declared: 3, active: 0, idle: 3, offline: 0, unknown: 0, gatewaysReachable: 2, gatewaysDeclared: 2 })
   })
 
-  it('gives a fresh direct stopped gateway precedence over Kanban and never turns OpenCode version into a work state', () => {
+  it('does not treat a stopped gateway as Offline (CLI agents need none) and never turns OpenCode version into a work state', () => {
     const office = buildOfficeSnapshot({
       ...runtime,
-      gateways: { ...runtime.gateways, default: { availability: 'available', data: 'Stopped' } },
+      profiles: { availability: 'available', data: [{ name: 'default', model: 'm', gateway: 'Stopped' }, { name: 'coder', model: 'm', gateway: 'Running' }] },
     }, {
       tasks: { availability: 'available', data: [{ title: 'Active lead work', status: 'running', assignee: 'default' }] },
       fetchedAt: '2026-09-27T12:00:00.000Z',
     }, { sessions: { availability: 'unavailable', data: [], error: { code: 'COMMAND_FAILED', message: 'Read command was unavailable.' } }, fetchedAt: '2026-09-27T12:00:00.000Z' }, { now: runtime.fetchedAt })
 
-    expect(office.stations[0]).toMatchObject({ name: 'Lead Agent', state: 'Offline', currentTask: 'Active lead work', recentActivity: 'Not Available' })
-    expect(office.stations[2]).toMatchObject({ name: 'OpenCode', state: 'Unknown' })
+    expect(office.stations[0]).toMatchObject({ name: 'default', state: 'Working', currentTask: 'Active lead work', recentActivity: 'Not Available' })
+    expect(office.stations.some((station) => station.state === 'Offline')).toBe(false)
+    expect(office.stations[2]).toMatchObject({ name: 'opencode', state: 'Unknown' })
   })
 
   it('does not turn unassigned work, generic sessions, gateway Running, or a version into active state', () => {
@@ -228,8 +225,8 @@ describe('Office snapshot', () => {
   it('uses a fresh explicit overlay before attributed work and expires it', () => {
     const board = { tasks: { availability: 'available' as const, data: [{ title: 'Lead work', status: 'running', assignee: 'default' }] }, fetchedAt: runtime.fetchedAt }
     const activity = { sessions: { availability: 'available' as const, data: [] }, fetchedAt: runtime.fetchedAt }
-    const active = buildOfficeSnapshot(runtime, board, activity, { now: runtime.fetchedAt, explicitStates: [{ station: 'Lead Agent', state: 'Reviewing', expiresAt: '2026-09-27T12:00:10.000Z' }] })
-    const expired = buildOfficeSnapshot(runtime, board, activity, { now: '2026-09-27T12:00:20.000Z', explicitStates: [{ station: 'Lead Agent', state: 'Reviewing', expiresAt: '2026-09-27T12:00:10.000Z' }] })
+    const active = buildOfficeSnapshot(runtime, board, activity, { now: runtime.fetchedAt, explicitStates: [{ station: 'default', state: 'Reviewing', expiresAt: '2026-09-27T12:00:10.000Z' }] })
+    const expired = buildOfficeSnapshot(runtime, board, activity, { now: '2026-09-27T12:00:20.000Z', explicitStates: [{ station: 'default', state: 'Reviewing', expiresAt: '2026-09-27T12:00:10.000Z' }] })
 
     expect(active.stations[0].state).toBe('Reviewing')
     expect(expired.stations[0].state).toBe('Working')
@@ -237,7 +234,7 @@ describe('Office snapshot', () => {
 })
 
 describe('calendar across profiles', () => {
-  const profileList = `\n Profile          Model                        Gateway      Alias        Distribution\n ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────\n ◆default         anthropic/claude-sonnet-4    running      —            —\n  leadengineer    openai/gpt-5.5               running      le           —\n  research        —                            stopped      —            —\n`
+  const profileList = `\n Profile          Model                        Gateway      Alias        Distribution\n ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────\n ◆default         anthropic/claude-sonnet-4    running      —            —\n  coder    openai/gpt-5.5               running      le           —\n  research        —                            stopped      —            —\n`
   const cron = (id: string, name: string) => `  ${id} [active]\n    Name:      ${name}\n    Schedule:  0 8 * * *\n    Repeat:    ∞\n    Next run:  2026-09-28T08:00:00+07:00\n`
 
   it('reads every profile with -p and tags each job with its profile', async () => {
@@ -246,12 +243,12 @@ describe('calendar across profiles', () => {
       calls.push(args)
       if (args.join(' ') === 'profile list') return profileList
       if (args[1] === 'default') return cron('a1b2c3d4', 'Morning brief')
-      if (args[1] === 'leadengineer') return cron('b2c3d4e5', 'Nightly review')
+      if (args[1] === 'coder') return cron('b2c3d4e5', 'Nightly review')
       return 'No scheduled jobs.\n'
     })
-    expect(calls).toContainEqual(['-p', 'leadengineer', 'cron', 'list', '--all'])
+    expect(calls).toContainEqual(['-p', 'coder', 'cron', 'list', '--all'])
     expect(calendar.jobs.availability).toBe('available')
-    expect(calendar.jobs.data.map((job) => [job.agent, job.name])).toEqual([['default', 'Morning brief'], ['leadengineer', 'Nightly review']])
+    expect(calendar.jobs.data.map((job) => [job.agent, job.name])).toEqual([['default', 'Morning brief'], ['coder', 'Nightly review']])
     expect(calendar.failedProfiles).toBeUndefined()
   })
 
