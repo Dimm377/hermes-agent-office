@@ -1,3 +1,5 @@
+import { LOCKED_EVENT } from './access.ts'
+
 export type RequestState<T> =
   | { status: 'pending' }
   | { status: 'ready'; data: T; stale?: boolean }
@@ -18,7 +20,8 @@ export async function loadSnapshot<T>(path: string, request: typeof fetch = fetc
     return { status: 'failed', message: describeFailure(undefined) }
   }
   if (!response.ok) {
-    const body = await response.json().catch(() => undefined) as { error?: unknown } | undefined
+    const body = await response.json().catch(() => undefined) as { error?: unknown; locked?: unknown } | undefined
+    if (response.status === 401 && body?.locked === true && typeof window !== 'undefined') window.dispatchEvent(new Event(LOCKED_EVENT))
     const serverMessage = typeof body?.error === 'string' ? body.error : undefined
     return { status: 'failed', httpStatus: response.status, message: describeFailure(response.status, serverMessage) }
   }

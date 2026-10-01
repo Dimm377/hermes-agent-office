@@ -85,8 +85,37 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
   OpenCode shows its global `AGENTS.md`/`CLAUDE.md`. Entries are searchable. Everything is read through the Folders safety layer, so it is read-only, confined to the agent's folder and secret-redacted. `#/knowledge` opens this page.
 - **Folders**: one folder per agent, and only that agent's folder: a Hermes profile `<name>` → `~/.hermes/profiles/<name>`, OpenCode → `~/.opencode`. Browse sub-folders and view files read-only. See *Folders* below.
 - **Logs**: tails of `hermes logs agent|gateway|errors` with level filter, search and follow mode, plus an audit of every command the server ran (the *Command audit* tab).
+- **Settings**: the optional access code. See *Access code* below.
 
 Navigation is a drawer, closed by default like a game menu: open it with the ☰ button or the **M** key, and close it with Esc, a click outside, or by choosing a page. A dot on ☰ flags failed CLI reads or stopped gateways. The header has one light/dark theme toggle (remembered per browser) and Refresh. All pages poll automatically, keep the last good data (marked stale) if a refresh fails, and have a manual refresh. "Refresh all" bypasses the 10-second server cache for anything older than 2 seconds. Pages are addressable by URL hash (for example `#/task-board`).
+
+## Access code
+
+Off by default. Turn it on in **Settings → Access code** to ask for a code every time Ruang is opened in a browser. It works like an API key rather than a username and password:
+
+1. Choose **Generate** (a random code such as `ruang-7KQ4-M2XD-9PWT-H6RA`) or **Custom** (at least 12 characters, typed twice).
+2. **Download .txt** or **Copy** it. The code is only shown while you set it, and Ruang has no password reset, so the downloaded file is your backup.
+3. Tick *I have saved this code*, optionally *Remember this device for 7 days*, and turn it on.
+
+Every browser then shows an unlock screen first. Without *Remember*, a session ends when the browser closes (and after 12 hours at most). **Change code** and **Turn off** need the current code; changing or removing it signs out every browser. **Lock this browser** ends the current session.
+
+Lost the code? On the machine that runs Ruang:
+
+```bash
+ruang access-code off      # remove it, then set a new one in Settings
+ruang access-code new      # or print a new random code
+ruang access-code status
+```
+
+How it is protected:
+- Only a scrypt hash of the code is stored, with a random secret that signs sessions, in `~/.config/ruang/access.json` (mode `0600`; `RUANG_CONFIG_DIR` or `XDG_CONFIG_HOME` move it). The code itself is never stored, logged or kept in the browser.
+- The server enforces it: while locked, every `/api` route except `/api/health` and the unlock route answers `401`, so no Hermes data reaches the browser. The UI shell itself is static and carries no data.
+- Sessions use an `HttpOnly`, `SameSite=Strict` cookie. Changes need a same-page request header, so other sites cannot make them.
+- After 5 wrong codes, each further try from the same address waits longer (1 s, doubling, up to 5 minutes).
+- A damaged `access.json` keeps Ruang locked rather than open; `ruang access-code off` clears it.
+- This is Ruang's only write, and it touches Ruang's own config, never Hermes.
+
+Ruang listens on `127.0.0.1`, so the code matters when you reach it from other devices, for example through an SSH tunnel, Tailscale or a reverse proxy. Over plain HTTP the code crosses the network unencrypted; use an HTTPS tunnel or Tailscale for that.
 
 ## Data and safety
 
@@ -120,7 +149,7 @@ Otherwise, raw CLI output, process details, paths, configuration, credentials, a
 - Activity is limited to session-list metadata and does not synthesize events.
 - Knowledge is a curated catalog of enabled skills recognized from Hermes's Rich table.
 
-Empty source results remain available and show truthful empty states; unparseable output and command failures are shown as `Not Available`. Hermes write actions are intentionally not implemented.
+Empty source results remain available and show truthful empty states; unparseable output and command failures are shown as `Not Available`. Hermes write actions are intentionally not implemented. The only thing Ruang ever writes is its own optional access code file (see *Access code*).
 
 ## Office
 

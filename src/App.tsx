@@ -7,7 +7,10 @@ import { Folders } from './pages/Folders.tsx'
 import { Logs } from './pages/Logs.tsx'
 import { Memory } from './pages/Memory.tsx'
 import { Office } from './pages/Office.tsx'
+import { Settings } from './pages/Settings.tsx'
 import { TaskBoard } from './pages/TaskBoard.tsx'
+import { LOCKED_EVENT, loadAccess, type AccessStatus } from './access.ts'
+import { LockScreen } from './LockScreen.tsx'
 import { API_VERSION } from './api-version.ts'
 import { RefreshContext, usePolling } from './polling.ts'
 import { usePreferences } from './preferences.ts'
@@ -18,7 +21,7 @@ function currentPage(): Page {
   return typeof window === 'undefined' ? HOME : pageFromHash(window.location.hash)
 }
 
-function Shell({ onRefresh }: { onRefresh: () => void }) {
+function Shell({ onRefresh, access, onAccessChange }: { onRefresh: () => void; access: AccessStatus | undefined; onAccessChange: (status: AccessStatus) => void }) {
   const [page, setPage] = useState<Page>(currentPage)
   const { theme, toggleTheme } = usePreferences()
   // The navigation is a drawer over the page, closed by default, like a game's menu.
@@ -70,7 +73,7 @@ function Shell({ onRefresh }: { onRefresh: () => void }) {
   const syncLabel = data ? `SYNCED ${formatTime(data.fetchedAt)}${dashboard.status === 'ready' && dashboard.stale ? ' · STALE' : ''}` : dashboard.status === 'failed' ? 'API NOT AVAILABLE' : 'CONNECTING...'
 
   const alerts = (data && data.commands.failed > 0 ? 1 : 0)
-  const content = page === 'Agents' ? <Agents runtime={data?.runtime ?? null} pending={dashboard.status === 'pending'}/> : page === 'Office' ? <Office dashboard={data} dashboardPending={dashboard.status === 'pending'} onNavigate={navigate}/> : page === 'Task Board' ? <TaskBoard/> : page === 'Calendar' ? <Calendar/> : page === 'Activity' ? <Activity/> : page === 'Memory' ? <Memory onOpenFolders={() => navigate('Folders')}/> : page === 'Folders' ? <Folders/> : <Logs/>
+  const content = page === 'Agents' ? <Agents runtime={data?.runtime ?? null} pending={dashboard.status === 'pending'}/> : page === 'Office' ? <Office dashboard={data} dashboardPending={dashboard.status === 'pending'} onNavigate={navigate}/> : page === 'Task Board' ? <TaskBoard/> : page === 'Calendar' ? <Calendar/> : page === 'Activity' ? <Activity/> : page === 'Memory' ? <Memory onOpenFolders={() => navigate('Folders')}/> : page === 'Folders' ? <Folders/> : page === 'Settings' ? <Settings access={access} onAccessChange={onAccessChange}/> : <Logs/>
 
   return <div className={`app${page === 'Office' ? ' app-office' : ''}`}>
     {menuOpen && <div className="drawer-backdrop" onClick={closeMenu} aria-hidden="true"/>}
@@ -88,5 +91,18 @@ function Shell({ onRefresh }: { onRefresh: () => void }) {
 
 export function App() {
   const [tick, setTick] = useState(0)
-  return <RefreshContext.Provider value={tick}><Shell onRefresh={() => setTick((value) => value + 1)}/></RefreshContext.Provider>
+  // undefined while checking. An unreachable or older server answers no status: carry on
+  // without the lock, since the server is the one that enforces it.
+  const [access, setAccess] = useState<AccessStatus | undefined>()
+  const [checked, setChecked] = useState(false)
+  useEffect(() => {
+    let active = true
+    const check = () => void loadAccess().then((status) => { if (active) { setAccess(status); setChecked(true) } })
+    check()
+    window.addEventListener(LOCKED_EVENT, check)
+    return () => { active = false; window.removeEventListener(LOCKED_EVENT, check) }
+  }, [])
+  if (!checked) return <main className="lock-screen" aria-busy="true"/>
+  if (access?.enabled && !access.unlocked) return <LockScreen status={access} onUnlocked={(status) => { setAccess(status); setTick((value) => value + 1) }}/>
+  return <RefreshContext.Provider value={tick}><Shell access={access} onAccessChange={setAccess} onRefresh={() => setTick((value) => value + 1)}/></RefreshContext.Provider>
 }

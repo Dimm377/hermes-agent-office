@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { LOCKED_EVENT } from '../access.ts'
 import { formatBytes, formatDateTime } from '../format.ts'
 import { usePolling } from '../polling.ts'
 import type { RequestState } from '../request-state.ts'
@@ -16,8 +17,9 @@ type FolderRequest<T> = RequestState<T> & { error?: string; reload: () => void }
 async function loadWithReason<T>(url: string): Promise<RequestState<T> & { error?: string }> {
   try {
     const response = await fetch(url)
-    const body = await response.json().catch(() => undefined) as (T & { error?: unknown }) | undefined
+    const body = await response.json().catch(() => undefined) as (T & { error?: unknown; locked?: unknown }) | undefined
     if (response.ok && body) return { status: 'ready', data: body }
+    if (response.status === 401 && body?.locked === true) window.dispatchEvent(new Event(LOCKED_EVENT))
     return { status: 'failed', error: typeof body?.error === 'string' ? body.error : `Request failed (HTTP ${response.status}).` }
   } catch {
     return { status: 'failed', error: 'The Ruang API could not be reached.' }
