@@ -744,3 +744,5 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .usage-bars b { font-weight: 500; text-align: right; }
 .usage-bars small { color: var(--text-muted); text-align: right; }
 .office-panel .usage-sections { grid-template-columns: 1fr; }
+.usage-page { margin-top: 20px; }
+.usage-page .usage-card, .office-overlay .usage-card { margin-bottom: 0; }

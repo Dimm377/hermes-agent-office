@@ -12,6 +12,7 @@ import { AgentMemoryView } from './Memory.tsx'
 import { Stats } from './Stats.tsx'
 import { TaskBoard } from './TaskBoard.tsx'
 import { formatCost } from '../usage.ts'
+import { TokenUsage } from './TokenUsage.tsx'
 
 // The 3D view (three.js) is only downloaded when someone switches to it.
 const Office3D = lazy(() => import('./Office3D.tsx'))
@@ -108,10 +109,10 @@ export function OfficeDetail({ station, onClose }: { station: OfficeStation; onC
   </div>
 }
 
-type OverlayKind = 'tasks' | 'calendar'
-const OVERLAYS: Record<OverlayKind, { title: string; page: Page }> = { tasks: { title: 'Task Board', page: 'Task Board' }, calendar: { title: 'Calendar', page: 'Calendar' } }
+type OverlayKind = 'tasks' | 'calendar' | 'usage'
+const OVERLAYS: Record<OverlayKind, { title: string; page: Page }> = { tasks: { title: 'Task Board', page: 'Task Board' }, calendar: { title: 'Calendar', page: 'Calendar' }, usage: { title: 'Token usage', page: 'Usage' } }
 
-/** Task Board or the cron calendar shown over the office, without leaving it. */
+/** Task Board, the cron calendar or token usage shown over the office, without leaving it. */
 function OfficeOverlay({ kind, onClose, onNavigate }: { kind: OverlayKind; onClose: () => void; onNavigate?: (page: Page) => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
   useEffect(() => { closeRef.current?.focus() }, [kind])
@@ -122,7 +123,7 @@ function OfficeOverlay({ kind, onClose, onNavigate }: { kind: OverlayKind; onClo
       {onNavigate && <button type="button" className="refresh-button" onClick={() => onNavigate(page)}>Open full page ↗</button>}
       <button type="button" ref={closeRef} className="icon-button" onClick={onClose} aria-label={`Close ${title}`}>✕</button>
     </header>
-    <div className="office-overlay-body">{kind === 'tasks' ? <TaskBoard/> : <CalendarOverlayView/>}</div>
+    <div className="office-overlay-body">{kind === 'tasks' ? <TaskBoard/> : kind === 'calendar' ? <CalendarOverlayView/> : <TokenUsage/>}</div>
   </section>
 }
 
@@ -192,7 +193,7 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
     <div className="office-hud" role="list" aria-label="Key statistics">{hud.map((item) => { const body = <><span>{item.label}</span><b>{item.value}</b></>; return <div role="listitem" key={item.label}>{item.page && onNavigate ? <button type="button" className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title ?? `Open ${item.page}`} onClick={() => onNavigate(item.page!)}>{body}</button> : <span className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title}>{body}</span>}</div> })}</div>
     <div className="office-stage-tools">
       <div className="view-toggle" role="group" aria-label="Office view">{(['2d', '3d'] as const).map((item) => <button type="button" key={item} className={view === item ? 'active' : ''} aria-pressed={view === item} onClick={() => chooseView(item)} disabled={item === '3d' && !webgl} title={item === '3d' && !webgl ? 'WebGL is not available in this browser' : undefined}>{item.toUpperCase()}</button>)}</div>
-      {(['tasks', 'calendar'] as const).map((item) => <button type="button" key={item} className={`panel-toggle${overlay === item ? ' active' : ''}`} aria-pressed={overlay === item} onClick={() => setOverlay(overlay === item ? undefined : item)}>{item === 'tasks' ? '▦ Tasks' : '◷ Calendar'}</button>)}
+      {(['tasks', 'calendar', 'usage'] as const).map((item) => <button type="button" key={item} className={`panel-toggle${overlay === item ? ' active' : ''}`} aria-pressed={overlay === item} onClick={() => setOverlay(overlay === item ? undefined : item)}>{item === 'tasks' ? '▦ Tasks' : item === 'calendar' ? '◷ Calendar' : '◔ Tokens'}</button>)}
       <button type="button" className={`panel-toggle${panel ? ' active' : ''}`} aria-expanded={Boolean(panel)} aria-controls="office-panel" onClick={() => choosePanel(panel ? undefined : 'Crew')}>◧ Panel</button>
     </div>
     <div className="office-canvas">
