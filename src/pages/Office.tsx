@@ -2,15 +2,16 @@ import { Component, lazy, Suspense, useEffect, useRef, useState, type CSSPropert
 import { agentLook } from '../agents.ts'
 import { officeStateBadge } from '../office-state.ts'
 import { usePolling } from '../polling.ts'
-import { formatDateTime } from '../format.ts'
+import { formatCompact, formatDateTime, formatNumber } from '../format.ts'
 import type { Page } from '../routes.ts'
-import type { ActivitySnapshot, ChannelSnapshot, DashboardSnapshot, OfficeRoom, OfficeSnapshot, OfficeStation } from '../types.ts'
+import type { ActivitySnapshot, ChannelSnapshot, DashboardSnapshot, OfficeRoom, OfficeSnapshot, OfficeStation, UsageSnapshot } from '../types.ts'
 import { LoadingState, SourceStatus } from '../ui.tsx'
 import { CalendarOverlayView } from './Calendar.tsx'
 import { AgentFolder } from './Folders.tsx'
 import { AgentMemoryView } from './Memory.tsx'
 import { Stats } from './Stats.tsx'
 import { TaskBoard } from './TaskBoard.tsx'
+import { formatCost } from '../usage.ts'
 
 // The 3D view (three.js) is only downloaded when someone switches to it.
 const Office3D = lazy(() => import('./Office3D.tsx'))
@@ -59,6 +60,16 @@ function officeStateLabel(station: OfficeStation): string {
   return station.state === 'Idle' ? 'Idle · managed placement' : station.state
 }
 
+/** This agent's tokens over the last 7 days and its rank in the crew (Hermes profiles only). */
+function AgentTokens({ agent }: { agent: string }) {
+  const usage = usePolling<UsageSnapshot>('/api/usage?days=7', 0)
+  if (usage.status !== 'ready' || !Array.isArray(usage.data.agents)) return <div><dt>Tokens (7 days)</dt><dd>{usage.status === 'pending' ? 'Loading…' : 'Not Available'}</dd></div>
+  const ranked = usage.data.agents.filter((item) => item.usage)
+  const index = ranked.findIndex((item) => item.agent === agent)
+  const mine = ranked[index]?.usage
+  return <div><dt>Tokens (7 days)</dt><dd>{mine ? `${formatNumber(mine.totalTokens)} · #${index + 1} of ${ranked.length}${mine.costUsd !== undefined ? ` · est. ${formatCost(mine.costUsd)}` : ''}${mine.topSession ? ` · biggest session ${formatCompact(mine.topSession.tokens)}` : ''}` : 'Not Available'}</dd></div>
+}
+
 type DetailTab = 'Overview' | 'Folder' | 'Memory'
 const DETAIL_TABS: DetailTab[] = ['Overview', 'Folder', 'Memory']
 
@@ -89,7 +100,7 @@ export function OfficeDetail({ station, onClose }: { station: OfficeStation; onC
       {profile && <div className="detail-tabs" role="tablist" aria-label={`${station.name} details`}>{DETAIL_TABS.map((item) => <button type="button" role="tab" key={item} aria-selected={tab === item} className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>{item}</button>)}</div>}
       <div role="tabpanel" aria-label={tab} className="detail-body">
         {tab === 'Overview' && <>{station.activity && <p className="detail-activity">{station.activity}</p>}
-          <dl className="office-detail-grid"><div><dt>Agent type</dt><dd>{station.role}</dd></div><div><dt>Current room</dt><dd>{station.room} / {station.roomPosition}</dd></div><div><dt>Current task</dt><dd>{station.currentTask}</dd></div><div><dt>Recent activity</dt><dd>{station.recentActivity}</dd></div><div><dt>Source / provenance</dt><dd>{station.provenance}</dd></div><div><dt>Freshness</dt><dd>{station.freshness}</dd></div></dl></>}
+          <dl className="office-detail-grid"><div><dt>Agent type</dt><dd>{station.role}</dd></div>{station.role !== 'OpenCode' && <AgentTokens agent={station.id}/>}<div><dt>Current room</dt><dd>{station.room} / {station.roomPosition}</dd></div><div><dt>Current task</dt><dd>{station.currentTask}</dd></div><div><dt>Recent activity</dt><dd>{station.recentActivity}</dd></div><div><dt>Source / provenance</dt><dd>{station.provenance}</dd></div><div><dt>Freshness</dt><dd>{station.freshness}</dd></div></dl></>}
         {tab === 'Folder' && profile && <AgentFolder profile={profile}/>}
         {tab === 'Memory' && profile && <AgentMemoryView profile={profile}/>}
       </div>

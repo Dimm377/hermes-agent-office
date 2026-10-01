@@ -14,7 +14,7 @@ export function usePolling<T>(path: string, intervalMs = 15_000): Polled<T> {
 
   const load = useCallback(async (fresh = false) => {
     setRefreshing(true)
-    const next = await loadSnapshot<T>(fresh ? `${path}?fresh=1` : path)
+    const next = await loadSnapshot<T>(fresh ? `${path}${path.includes('?') ? '&' : '?'}fresh=1` : path)
     if (!mounted.current) return
     setState((previous) => mergeRefresh(previous, next))
     setRefreshing(false)

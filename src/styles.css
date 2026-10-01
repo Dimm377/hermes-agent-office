@@ -723,3 +723,24 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
 .segmented input { accent-color: var(--accent); }
 .generated-code { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; }
 .generated-code code { background: var(--c-151a16); border: 1px dashed var(--accent); border-radius: 4px; font-size: clamp(14px, 4vw, 18px); letter-spacing: .06em; overflow-wrap: anywhere; padding: 10px 14px; user-select: all; }
+
+/* Token usage (Stats) */
+.usage-card { display: grid; gap: 12px; margin-bottom: 18px; }
+.usage-card .metric-grid, .usage-card .card-note { margin: 0; }
+.usage-head { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+.usage-head .eyebrow { margin: 0; }
+.period-toggle { display: inline-flex; gap: 4px; }
+.period-toggle button { background: transparent; border: 1px solid var(--c-3a463c); border-radius: 3px; color: var(--text-muted); cursor: pointer; font: 10px ui-monospace, monospace; letter-spacing: .06em; padding: 4px 8px; }
+.period-toggle button.active { border-color: var(--accent); color: var(--text); }
+.usage-sections { display: grid; gap: 16px 24px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.usage-sections h3 { color: var(--text-muted); font: 11px ui-monospace, monospace; letter-spacing: .06em; margin: 0 0 8px; text-transform: uppercase; }
+.usage-bars { display: grid; gap: 6px; }
+.usage-bars > div { align-items: center; color: var(--text); display: grid; font: 11px ui-monospace, monospace; gap: 8px; grid-template-columns: minmax(70px, 120px) minmax(40px, 1fr) 46px 32px; min-height: 20px; }
+.usage-bars > div.muted-row { color: var(--text-muted); }
+.usage-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage-track { display: block; }
+.usage-track i { background: var(--c-4f9c7a); border-radius: 0 4px 4px 0; display: block; height: 8px; }
+.usage-track em { color: var(--text-muted); font-style: normal; }
+.usage-bars b { font-weight: 500; text-align: right; }
+.usage-bars small { color: var(--text-muted); text-align: right; }
+.office-panel .usage-sections { grid-template-columns: 1fr; }

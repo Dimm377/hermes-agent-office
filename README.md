@@ -59,7 +59,7 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
 ## Pages
 
 - **Agents**: every agent on this machine, with model, gateway state and what it is doing in the office. Agents are discovered, not configured: every Hermes profile from `hermes profile list` is an agent, plus OpenCode when it is installed. New profiles appear automatically, and each agent gets its own character colours derived from its name.
-- **Office** (home page): the office fills the screen below the header. A HUD across the top shows crew active, gateways running, running/open tasks, the next cron run and (when any) failed CLI reads; chips link to their page. The **Panel** button opens one side panel with three tabs: **Crew** (crew snapshot and a clickable list of stations), **Stats** (statistics across every source, 7-day usage from `hermes insights`, the Kanban status breakdown, runtime and what is up next; tiles link to their pages) and **Activity** (unattributed session metadata and messaging channels). The **Tasks** and **Calendar** buttons open the Task Board or a month calendar of cron runs over the office, without leaving it (Esc or ✕ closes them; *Open full page* goes to the page). `#/dashboard` opens the Office.
+- **Office** (home page): the office fills the screen below the header. A HUD across the top shows crew active, gateways running, running/open tasks, the next cron run and (when any) failed CLI reads; chips link to their page. The **Panel** button opens one side panel with three tabs: **Crew** (crew snapshot and a clickable list of stations), **Stats** (statistics across every source, token usage, the Kanban status breakdown, runtime and what is up next; tiles link to their pages) and **Activity** (unattributed session metadata and messaging channels). The **Tasks** and **Calendar** buttons open the Task Board or a month calendar of cron runs over the office, without leaving it (Esc or ✕ closes them; *Open full page* goes to the page). `#/dashboard` opens the Office.
 
   The view switches between **3D** (the default) and **2D**, remembered per browser; browsers without WebGL stay on 2D. The 3D view (three.js via React Three Fiber, loaded only when used) is an office of several rooms with an Indonesian touch:
   - the workspace: hot desking, with one unlabeled desk per agent in two rows (the building widens for a larger crew), and a meeting table with gorengan (fried snacks) on it
@@ -86,6 +86,14 @@ Checks: `npm run lint`, `npm test`, `npm run build`.
 - **Folders**: one folder per agent, and only that agent's folder: a Hermes profile `<name>` → `~/.hermes/profiles/<name>`, OpenCode → `~/.opencode`. Browse sub-folders and view files read-only. See *Folders* below.
 - **Logs**: tails of `hermes logs agent|gateway|errors` with level filter, search and follow mode, plus an audit of every command the server ran (the *Command audit* tab).
 - **Settings**: the optional access code. See *Access code* below.
+
+**Token usage** (Stats tab) adds up `hermes insights` of every agent, because Hermes keeps sessions per profile. Pick 24 hours, 7 days or 30 days to see:
+- total tokens, input/output, estimated cost, sessions, messages and tool calls for the whole crew, plus the top consumer
+- **By agent**: every agent ranked by tokens with its share of the total; hover for input/output, sessions, cost and its biggest session
+- **By kind of work**: tokens per session source, such as Kanban tasks, cron jobs, Telegram or the terminal
+- **By model** and **Top tools**, across all agents
+
+The agent dialog in the Office shows that agent's tokens over 7 days and its rank. Per-source and per-model counts include cache tokens, so they can add up to more than the total. An agent whose insights cannot be read shows as *Not Available* while the others still count. Tokens per Kanban task are not available: Hermes does not record them per task.
 
 Navigation is a drawer, closed by default like a game menu: open it with the ☰ button or the **M** key, and close it with Esc, a click outside, or by choosing a page. A dot on ☰ flags failed CLI reads or stopped gateways. The header has one light/dark theme toggle (remembered per browser) and Refresh. All pages poll automatically, keep the last good data (marked stale) if a refresh fails, and have a manual refresh. "Refresh all" bypasses the 10-second server cache for anything older than 2 seconds. Pages are addressable by URL hash (for example `#/task-board`).
 
@@ -123,7 +131,8 @@ The server uses only these fixed, read-only commands:
 - `hermes profile list` (the agents and their gateway states), `opencode --version`
 - `hermes kanban boards list --json`, then `hermes kanban --board <slug> list --json` for each board with tasks (at most four at a time; plain `hermes kanban list --json` on Hermes versions without boards), and `hermes kanban --board <slug> show <id> --json` (task detail)
 - `hermes -p <profile> cron list --all` for every profile in `hermes profile list` (Hermes keeps cron jobs per profile), `hermes sessions list --limit 20`, `hermes skills list --enabled-only`
-- `hermes status --all`, `hermes insights --days 7`, `hermes logs <agent|gateway|errors> -n 200`
+- `hermes status --all`, `hermes logs <agent|gateway|errors> -n 200`
+- for token usage, for every profile (at most four at a time): `hermes -p <profile> insights --days <1|7|30>`
 - for live Office activity, for every profile (at most four at a time): `hermes -p <profile> logs agent -n 80 --since 3m` and `hermes -p <profile> sessions list --limit 3`
 
 How they run:

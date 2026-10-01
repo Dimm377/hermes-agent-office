@@ -1,6 +1,7 @@
-import { formatCompact, formatDateTime, formatNumber, orderedStatuses, statusTone } from '../format.ts'
+import { formatDateTime, formatNumber, orderedStatuses, statusTone } from '../format.ts'
 import type { DashboardSnapshot } from '../types.ts'
 import { EmptyState, LoadingState } from '../ui.tsx'
+import { TokenUsage } from './TokenUsage.tsx'
 import type { Page } from '../routes.ts'
 
 function availableCount(source: { availability: string; total: number }, unit?: string) {
@@ -15,13 +16,10 @@ function StatTile({ label, value, detail, onClick }: { label: string; value: str
 export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: DashboardSnapshot | null; pending?: boolean; onNavigate?: (page: Page) => void }) {
   if (pending) return <LoadingState message="Reading runtime signals..."/>
   if (!dashboard) return <EmptyState title="Not Available">The Ruang API could not be reached. Start it with <code>npm run dev</code>.</EmptyState>
-  const { runtime, tasks, calendar, activity, knowledge, channels, office, usage, commands } = dashboard
+  const { runtime, tasks, calendar, activity, knowledge, channels, office, commands } = dashboard
   const go = (page: Page) => onNavigate ? () => onNavigate(page) : undefined
   const openTasks = Object.entries(tasks.byStatus).filter(([status]) => !['done', 'archived'].includes(status)).reduce((sum, [, count]) => sum + count, 0)
   const statuses = orderedStatuses(Object.keys(tasks.byStatus))
-  const insight = usage.availability === 'available' ? usage.data : null
-  const topModel = insight?.models[0]
-  const maxTool = Math.max(1, ...(insight?.tools.map((tool) => tool.calls) ?? [1]))
   const hermesMissing = /not installed/i.test(runtime.profiles.error?.message ?? '')
 
   return <div className="stats-view">
@@ -37,23 +35,9 @@ export function Stats({ dashboard, pending = false, onNavigate }: { dashboard: D
       <StatTile label="CLI reads" value={formatNumber(commands.total)} detail={`${commands.failed} failed · ${commands.averageMs} ms avg`} onClick={go('Logs')}/>
     </section>
 
-    <section className="dash-grid">
-      <article className="card">
-        <p className="eyebrow">USAGE · LAST {insight?.days ?? 7} DAYS</p>
-        {usage.availability === 'unavailable' ? <p className="muted">Not Available — {usage.error?.message ?? 'hermes insights could not be read.'}</p> : !insight ? <p className="muted">No usage data.</p> : <>
-          <dl className="metric-grid">
-            <div><dt>Sessions</dt><dd>{formatNumber(insight.sessions)}</dd></div>
-            <div><dt>Messages</dt><dd>{formatNumber(insight.messages)}</dd></div>
-            <div><dt>Tool calls</dt><dd>{formatNumber(insight.toolCalls)}</dd></div>
-            <div><dt>Total tokens</dt><dd>{formatCompact(insight.totalTokens)}</dd></div>
-            <div><dt>Input / output</dt><dd>{formatCompact(insight.inputTokens)} / {formatCompact(insight.outputTokens)}</dd></div>
-            <div><dt>Est. cost</dt><dd>{insight.estimatedCost ?? '—'}</dd></div>
-          </dl>
-          {topModel && <p className="card-note">Top model: <b>{topModel.model}</b> · {topModel.sessions} sessions · {formatCompact(topModel.tokens)} tokens</p>}
-          {insight.tools.length > 0 && <div className="bar-list" aria-label="Top tools">{insight.tools.slice(0, 5).map((tool) => <div key={tool.tool}><span>{tool.tool}</span><i style={{ width: `${Math.max(4, (tool.calls / maxTool) * 100)}%` }}/><b>{formatNumber(tool.calls)}</b></div>)}</div>}
-        </>}
-      </article>
+    <TokenUsage/>
 
+    <section className="dash-grid">
       <article className="card">
         <p className="eyebrow">KANBAN BY STATUS</p>
         {tasks.availability === 'unavailable' ? <p className="muted">Not Available</p> : tasks.total === 0 ? <p className="muted">No tasks on the board.</p> : <>

@@ -71,8 +71,25 @@ export interface UsageInsights {
   outputTokens: number
   totalTokens: number
   estimatedCost?: string
+  /** The estimated cost in US dollars, when Hermes has pricing for the models used. */
+  costUsd?: number
   models: { model: string; sessions: number; tokens: number }[]
   tools: { tool: string; calls: number }[]
+  /** Tokens per session source (cli, telegram, cron, kanban…), cache tokens included. */
+  sources: { source: string; sessions: number; tokens: number }[]
+  /** The single session with the most tokens in the period. */
+  topSession?: { tokens: number; date: string }
+}
+export interface AgentUsage { agent: string; availability: Availability; usage?: UsageInsights; error?: string }
+export interface UsageTotals { sessions: number; messages: number; toolCalls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd?: number }
+export interface UsageSnapshot {
+  days: number
+  agents: AgentUsage[]
+  totals: UsageTotals
+  models: { model: string; sessions: number; tokens: number }[]
+  sources: { source: string; sessions: number; tokens: number }[]
+  tools: { tool: string; calls: number }[]
+  fetchedAt: string
 }
 export interface CountSource { availability: Availability; total: number }
 export interface CommandLogEntry { command: string; ok: boolean; durationMs: number; at: string; error?: string }
@@ -86,7 +103,6 @@ export interface DashboardSnapshot {
   knowledge: CountSource & { byCategory: Record<string, number> }
   channels: CountSource & { connected: number; activeSessions?: number }
   office: OfficeSummary
-  usage: Source<UsageInsights | null>
   commands: CommandHealth
   fetchedAt: string
 }
@@ -335,7 +351,7 @@ export function parseChannelStatus(output: string): { channels: Channel[]; activ
 
 export function parseInsights(output: string, days: number): UsageInsights {
   const all = lines(output)
-  const empty: UsageInsights = { days, sessions: 0, messages: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, models: [], tools: [] }
+  const empty: UsageInsights = { days, sessions: 0, messages: 0, toolCalls: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0, models: [], tools: [], sources: [] }
   if (all.some((line) => /No sessions found in the last|No session data yet/i.test(line))) return empty
   const overviewIndex = all.findIndex((line) => /Overview\s*$/.test(line))
   if (overviewIndex < 0) throw new Error('Unrecognized insights output.')
@@ -357,17 +373,28 @@ export function parseInsights(output: string, days: number): UsageInsights {
     return match ? [{ tool: match[1], calls: toInt(match[2]) }] : []
   })
   const estimatedCost = joined.match(/Estimated:\s+(~?\$[\d,.]+)/)?.[1]
+  const sessions = number('Sessions')
+  const totalTokens = number('Total tokens')
+  // Hermes prints the Platforms section only when there is more than plain CLI use.
+  const platformRows = section(/Platforms\s*$/).flatMap((line) => {
+    const match = line.match(/^\s+(\S+)\s+([\d,]+)\s+[\d,]+\s+([\d,]+)\s*$/)
+    return match ? [{ source: match[1].toLowerCase(), sessions: toInt(match[2]), tokens: toInt(match[3]) }] : []
+  })
+  const sources = platformRows.length > 0 ? platformRows.sort((a, b) => b.tokens - a.tokens) : sessions > 0 ? [{ source: 'cli', sessions, tokens: totalTokens }] : []
+  const top = joined.match(/^\s*Most tokens\s+([\d,]+) tokens\s+\(([^,)]+)/m)
   return {
     days,
-    sessions: number('Sessions'),
+    sessions,
     messages: number('Messages'),
     toolCalls: number('Tool calls'),
     inputTokens: number('Input tokens'),
     outputTokens: number('Output tokens'),
-    totalTokens: number('Total tokens'),
-    ...(estimatedCost ? { estimatedCost } : {}),
+    totalTokens,
+    ...(estimatedCost ? { estimatedCost, costUsd: Number(estimatedCost.replace(/[^\d.]/g, '')) } : {}),
     models,
     tools,
+    sources,
+    ...(top ? { topSession: { tokens: toInt(top[1]), date: top[2].trim() } } : {}),
   }
 }
 
@@ -556,6 +583,43 @@ export const INSIGHT_DAYS = 7
 
 export async function collectInsights(run: Run = systemRun): Promise<Source<UsageInsights | null>> {
   return read<UsageInsights | null>(run, 'hermes', ['insights', '--days', String(INSIGHT_DAYS)], (output) => parseInsights(output, INSIGHT_DAYS), null)
+}
+
+/** Periods the token view offers, in days. */
+export const USAGE_PERIODS = [1, 7, 30] as const
+const USAGE_CONCURRENCY = 4
+
+function mergeRows<K extends 'model' | 'source'>(key: K, rows: ({ [P in K]: string } & { sessions: number; tokens: number })[]) {
+  const merged = new Map<string, { sessions: number; tokens: number }>()
+  for (const row of rows) {
+    const current = merged.get(row[key]) ?? { sessions: 0, tokens: 0 }
+    merged.set(row[key], { sessions: current.sessions + row.sessions, tokens: current.tokens + row.tokens })
+  }
+  return [...merged].map(([name, value]) => ({ [key]: name, ...value }) as { [P in K]: string } & { sessions: number; tokens: number }).sort((a, b) => b.tokens - a.tokens)
+}
+
+/**
+ * Token usage of every agent. Hermes keeps sessions per profile, so `hermes insights` only
+ * covers the active one; each profile is read with `-p` (at most four at a time) and summed.
+ */
+export async function collectUsage(days: number, profiles: readonly string[], run: Run = systemRun): Promise<UsageSnapshot> {
+  const names = profiles.filter((name) => PROFILE_NAME.test(name))
+  const agents = await mapLimit(names.length > 0 ? names : ['default'], USAGE_CONCURRENCY, async (agent): Promise<AgentUsage> => {
+    const result = await read<UsageInsights | null>(run, 'hermes', [...(names.length > 0 ? ['-p', agent] : []), 'insights', '--days', String(days)], (output) => parseInsights(output, days), null)
+    return result.availability === 'available' && result.data ? { agent, availability: 'available', usage: result.data } : { agent, availability: 'unavailable', error: result.error?.message ?? 'hermes insights could not be read.' }
+  })
+  const readable = agents.flatMap((agent) => (agent.usage ? [agent.usage] : []))
+  const sum = (field: 'sessions' | 'messages' | 'toolCalls' | 'inputTokens' | 'outputTokens' | 'totalTokens') => readable.reduce((total, usage) => total + usage[field], 0)
+  const costs = readable.flatMap((usage) => (usage.costUsd !== undefined && Number.isFinite(usage.costUsd) ? [usage.costUsd] : []))
+  return {
+    days,
+    agents: agents.sort((a, b) => (b.usage?.totalTokens ?? -1) - (a.usage?.totalTokens ?? -1)),
+    totals: { sessions: sum('sessions'), messages: sum('messages'), toolCalls: sum('toolCalls'), inputTokens: sum('inputTokens'), outputTokens: sum('outputTokens'), totalTokens: sum('totalTokens'), ...(costs.length ? { costUsd: costs.reduce((total, cost) => total + cost, 0) } : {}) },
+    models: mergeRows('model', readable.flatMap((usage) => usage.models)),
+    sources: mergeRows('source', readable.flatMap((usage) => usage.sources)),
+    tools: [...readable.flatMap((usage) => usage.tools).reduce((calls, tool) => calls.set(tool.tool, (calls.get(tool.tool) ?? 0) + tool.calls), new Map<string, number>())].map(([tool, calls]) => ({ tool, calls })).sort((a, b) => b.calls - a.calls),
+    fetchedAt: new Date().toISOString(),
+  }
 }
 
 export const LOG_FILES = [
@@ -887,8 +951,8 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
 // ---------------------------------------------------------------------------
 // Dashboard aggregation
 
-export function buildDashboard(parts: { runtime: RuntimeSnapshot; board: TaskBoardSnapshot; calendar: CalendarSnapshot; activity: ActivitySnapshot; knowledge: KnowledgeSnapshot; channels: ChannelSnapshot; office: OfficeSnapshot; usage: Source<UsageInsights | null>; commands: CommandHealth }): DashboardSnapshot {
-  const { runtime, board, calendar, activity, knowledge, channels, office, usage, commands } = parts
+export function buildDashboard(parts: { runtime: RuntimeSnapshot; board: TaskBoardSnapshot; calendar: CalendarSnapshot; activity: ActivitySnapshot; knowledge: KnowledgeSnapshot; channels: ChannelSnapshot; office: OfficeSnapshot; commands: CommandHealth }): DashboardSnapshot {
+  const { runtime, board, calendar, activity, knowledge, channels, office, commands } = parts
   const tasks = board.tasks.data
   const byStatus = tasks.reduce<Record<string, number>>((counts, task) => ({ ...counts, [task.status]: (counts[task.status] ?? 0) + 1 }), {})
   const jobs = calendar.jobs.data
@@ -905,7 +969,6 @@ export function buildDashboard(parts: { runtime: RuntimeSnapshot; board: TaskBoa
     knowledge: { availability: knowledge.skills.availability, total: knowledge.skills.data.length, byCategory },
     channels: { availability: channels.channels.availability, total: channels.channels.data.length, connected: channels.channels.data.filter((channel) => channel.status === 'Connected').length, ...(channels.activeSessions !== undefined ? { activeSessions: channels.activeSessions } : {}) },
     office: office.summary,
-    usage,
     commands,
     fetchedAt: new Date().toISOString(),
   }
@@ -934,7 +997,12 @@ const calendarSource = cachedSource(() => collectCalendar())
 const activitySource = cachedSource(() => collectActivity())
 const knowledgeSource = cachedSource(() => collectKnowledge())
 const channelSource = cachedSource(() => collectChannels())
-const insightsSource = cachedSource(() => collectInsights(), INSIGHTS_CACHE_MS)
+const usageSources = new Map(USAGE_PERIODS.map((days) => [days, cachedSource(async () => collectUsage(days, (await getSnapshot()).profiles.data.map((profile) => profile.name)), INSIGHTS_CACHE_MS)]))
+
+/** Token usage of every agent over 1, 7 or 30 days (anything else reads as 7). */
+export function getUsage(days: number, now = Date.now()): Promise<UsageSnapshot> {
+  return (usageSources.get(days as typeof USAGE_PERIODS[number]) ?? usageSources.get(INSIGHT_DAYS)!)(now)
+}
 const logsSource = cachedSource(() => collectLogs(), 5_000)
 const agentActivitySource = cachedSource(async () => {
   const runtime = await getSnapshot()
@@ -965,7 +1033,7 @@ export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
 }
 
 export async function getDashboard(now = Date.now()): Promise<DashboardSnapshot> {
-  const [runtime, board, calendar, activity, knowledge, channels, usage, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), insightsSource(now), agentActivitySource(now)])
+  const [runtime, board, calendar, activity, knowledge, channels, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), agentActivitySource(now)])
   const office = buildOfficeSnapshot(runtime, board, activity, { agentActivity })
-  return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, usage, commands: commandHealth() })
+  return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, commands: commandHealth() })
 }

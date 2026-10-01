@@ -6,6 +6,7 @@ import {
   clearCommandLog,
   collectCalendar,
   collectInsights,
+  collectUsage,
   collectLogs,
   collectSnapshot,
   collectTaskBoard,
@@ -248,7 +249,45 @@ describe('Hermes insights', () => {
       days: 7, sessions: 42, messages: 1234, toolCalls: 567, inputTokens: 1234567, outputTokens: 89012, totalTokens: 1323579, estimatedCost: '~$12.34',
       models: [{ model: 'anthropic/claude-sonnet-4', sessions: 40, tokens: 1300000 }],
       tools: [{ tool: 'terminal', calls: 300 }],
+      costUsd: 12.34,
+      sources: [{ source: 'cli', sessions: 42, tokens: 1323579 }],
     })
+  })
+
+  const withPlatforms = (tokens: number) => [
+    insights.replace('1,323,579', tokens.toLocaleString('en-US')),
+    '  📱 Platforms',
+    `  ${'─'.repeat(56)}`,
+    `  ${'Platform'.padEnd(14)} ${'Sessions'.padStart(8)} ${'Messages'.padStart(10)} ${'Tokens'.padStart(14)}`,
+    `  ${'telegram'.padEnd(14)} ${'30'.padStart(8)} ${'900'.padStart(10)} ${'1,000,000'.padStart(14)}`,
+    `  ${'kanban'.padEnd(14)} ${'12'.padStart(8)} ${'334'.padStart(10)} ${'2,000,000'.padStart(14)}`,
+    '',
+    '  🏆 Notable Sessions',
+    `  ${'─'.repeat(56)}`,
+    `  ${'Most tokens'.padEnd(20)} ${'512,000 tokens'.padEnd(18)} (Sep 28, 20260928_090000_ab)`,
+    '',
+  ].join('\n')
+
+  it('reads tokens per session source and the biggest session', () => {
+    const usage = parseInsights(withPlatforms(1323579), 7)
+    expect(usage.sources).toEqual([{ source: 'kanban', sessions: 12, tokens: 2000000 }, { source: 'telegram', sessions: 30, tokens: 1000000 }])
+    expect(usage.topSession).toEqual({ tokens: 512000, date: 'Sep 28' })
+  })
+
+  it('adds up every profile, ranks agents and keeps the rest when one fails', async () => {
+    const calls: string[][] = []
+    const usage = await collectUsage(30, ['default', 'coder', 'broken', '--evil'], async (_file, args) => {
+      calls.push(args)
+      if (args[1] === 'broken') throw new Error('boom')
+      return args[1] === 'coder' ? withPlatforms(3000000) : insights
+    })
+    expect(calls.flat()).not.toContain('--evil')
+    expect(calls[0]).toEqual(['-p', 'default', 'insights', '--days', '30'])
+    expect(usage.agents.map((agent) => [agent.agent, agent.availability])).toEqual([['coder', 'available'], ['default', 'available'], ['broken', 'unavailable']])
+    expect(usage.totals.totalTokens).toBe(3000000 + 1323579)
+    expect(usage.totals.costUsd).toBeCloseTo(24.68)
+    expect(usage.models).toEqual([{ model: 'anthropic/claude-sonnet-4', sessions: 80, tokens: 2600000 }])
+    expect(usage.sources.map((source) => source.source)).toEqual(['kanban', 'cli', 'telegram'])
   })
 
   it('treats an empty period as zero usage and garbage as unavailable', async () => {
@@ -307,7 +346,6 @@ describe('Dashboard aggregation', () => {
       knowledge: { skills: { availability: 'available', data: [{ name: 'maps', category: 'travel', source: 'builtin', trust: 'builtin', status: 'enabled' }] }, fetchedAt: at },
       channels: { channels: { availability: 'available', data: [{ name: 'Telegram', status: 'Configured' }] }, activeSessions: 2, fetchedAt: at },
       office: buildOfficeSnapshot(runtime, board, activity, { now: at }),
-      usage: { availability: 'unavailable', data: null },
       commands: { total: 0, failed: 0, averageMs: 0 },
     })
     expect(dashboard.tasks).toEqual({ availability: 'available', total: 3, byStatus: { todo: 2, done: 1 }, assigned: 1 })

@@ -6,7 +6,7 @@ import { excludedFor, FolderError, listFolder, publicAgent, readFolderFile, reso
 import { installAccess } from './access.js'
 import { API_VERSION } from './api-version.js'
 import { collectMemory } from './memory.js'
-import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard, getTaskDetail } from './mission-control.js'
+import { getActivity, getCalendar, getChannels, getCommandLog, getDashboard, getKnowledge, getLogs, getOffice, getSnapshot, getTaskBoard, getTaskDetail, getUsage } from './mission-control.js'
 
 const HOST = '127.0.0.1'
 // MISSION_CONTROL_PORT is the pre-rename name, still honoured.
@@ -48,6 +48,10 @@ for (const [path, handler] of Object.entries(routes)) {
     response.json(await handler(now))
   })
 }
+app.get('/api/usage', async (request, response) => {
+  const now = Date.now() + (request.query.fresh === '1' ? FRESH_WINDOW_MS : 0)
+  response.json(await getUsage(Number(request.query.days) || 7, now))
+})
 app.get('/api/tasks/:id', async (request, response) => {
   const board = typeof request.query.board === 'string' && request.query.board ? request.query.board : undefined
   const detail = await getTaskDetail(String(request.params.id), Date.now(), board)

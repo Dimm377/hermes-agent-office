@@ -48,8 +48,21 @@ export interface UsageInsights {
   outputTokens: number
   totalTokens: number
   estimatedCost?: string
+  costUsd?: number
   models: { model: string; sessions: number; tokens: number }[]
   tools: { tool: string; calls: number }[]
+  sources: { source: string; sessions: number; tokens: number }[]
+  topSession?: { tokens: number; date: string }
+}
+export interface AgentUsage { agent: string; availability: Availability; usage?: UsageInsights; error?: string }
+export interface UsageSnapshot {
+  days: number
+  agents: AgentUsage[]
+  totals: { sessions: number; messages: number; toolCalls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd?: number }
+  models: { model: string; sessions: number; tokens: number }[]
+  sources: { source: string; sessions: number; tokens: number }[]
+  tools: { tool: string; calls: number }[]
+  fetchedAt: string
 }
 export interface CountSource { availability: Availability; total: number }
 export interface CommandHealth { total: number; failed: number; averageMs: number }
@@ -61,7 +74,6 @@ export interface DashboardSnapshot {
   knowledge: CountSource & { byCategory: Record<string, number> }
   channels: CountSource & { connected: number; activeSessions?: number }
   office: OfficeSummary
-  usage: Source<UsageInsights | null>
   commands: CommandHealth
   fetchedAt: string
 }
