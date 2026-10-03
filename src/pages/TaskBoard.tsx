@@ -60,6 +60,10 @@ export function TaskBoard() {
   const [board, setBoard] = useState('all')
   const [openTask, setOpenTask] = useState<Task | undefined>()
   const trigger = useRef<HTMLButtonElement | null>(null)
+  const boardRef = useRef<HTMLElement | null>(null)
+  /** Scrolls the board sideways by about one column, or to a column. */
+  const scrollBoard = (direction: number) => boardRef.current?.scrollBy({ left: direction * 250, behavior: 'smooth' })
+  const showColumn = (status: string) => boardRef.current?.querySelector<HTMLElement>(`[data-status="${CSS.escape(status)}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'start', block: 'nearest' })
   const closeTask = () => { setOpenTask(undefined); trigger.current?.focus() }
   const data = snapshot.status === 'ready' ? snapshot.data : undefined
   const tasks = data?.tasks
@@ -75,9 +79,14 @@ export function TaskBoard() {
     {data?.failedBoards && <p className="file-notice">Could not read the {data.failedBoards.join(', ')} board{data.failedBoards.length === 1 ? '' : 's'}; showing the others.</p>}
     {tasks?.availability === 'available' && (all.length === 0 ? <EmptyState title="No tasks">{multiBoard ? `None of the ${boards.length} Kanban boards has open tasks.` : 'Hermes returned an empty Kanban task list.'} Create one with <code>hermes kanban create</code>.</EmptyState> : <>
       <div className="toolbar"><SearchInput value={query} onChange={setQuery} label="Search tasks"/><label className="select-label">Assignee <select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="all">All ({all.length})</option>{assignees.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>{multiBoard && <label className="select-label">Board <select value={board} onChange={(event) => setBoard(event.target.value)}><option value="all">All boards</option>{boards.map((item) => <option key={item.slug} value={item.slug}>{item.name}{item.current ? ' (current)' : ''}</option>)}</select></label>}<span className="toolbar-count">{visible.length} shown</span></div>
-      <section className="board" aria-label="Kanban board">{columns.map((status) => {
+      <nav className="board-nav" aria-label="Kanban columns">
+        <button type="button" className="refresh-button" onClick={() => scrollBoard(-1)} aria-label="Scroll the board left">‹</button>
+        <div className="board-nav-chips">{columns.map((status) => <button type="button" key={status} className={`chip chip-button tone-border-${statusTone(status)}`} onClick={() => showColumn(status)}>{status} <b>{visible.filter((task) => task.status === status).length}</b></button>)}</div>
+        <button type="button" className="refresh-button" onClick={() => scrollBoard(1)} aria-label="Scroll the board right">›</button>
+      </nav>
+      <section className="board" aria-label="Kanban board" ref={boardRef}>{columns.map((status) => {
         const items = visible.filter((task) => task.status === status).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
-        return <article key={status} className={`column tone-border-${statusTone(status)}`} aria-label={`${status} column`}><header className="column-head"><p className="eyebrow">{status}</p><span className="column-count">{items.length}</span></header>
+        return <article key={status} data-status={status} className={`column tone-border-${statusTone(status)}`} aria-label={`${status} column`}><header className="column-head"><p className="eyebrow">{status}</p><span className="column-count">{items.length}</span></header>
           {items.length === 0 ? <p className="column-empty">—</p> : items.map((task) => <button type="button" className="task task-card" key={`${task.board ?? ''}-${task.status}-${task.id ?? task.title}`} onClick={(event) => { trigger.current = event.currentTarget; setOpenTask(task) }} aria-label={`${task.title}. ${task.status}. Open task details.`}><strong>{task.title}</strong><div className="task-meta">{task.id && <small>{task.id}</small>}{multiBoard && task.board && <span className="chip chip-muted">{task.board}</span>}<span className={`chip ${task.assignee ? '' : 'chip-muted'}`}>{task.assignee ?? 'unassigned'}</span>{task.priority ? <span className="chip chip-priority">P{task.priority}</span> : null}</div></button>)}
         </article>
       })}</section>

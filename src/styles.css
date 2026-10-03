@@ -765,3 +765,17 @@ aside.office-panel { background: color-mix(in srgb, var(--surface) 96%, transpar
   .office-stage .office-3d-floors { top: 96px; }
 }
 .office-3d-tools button.active.sleep { background: #3d4f8c; }
+
+/* Task board: columns are as tall as the screen allows and scroll on their own, so the board's
+   sideways scrollbar stays in view; the strip above jumps to a column or scrolls the board. */
+.board { align-items: start; scroll-snap-type: x proximity; }
+.board > .column { max-height: max(320px, calc(100dvh - 260px)); overflow-y: auto; overscroll-behavior: contain; scroll-snap-align: start; }
+.board > .column .column-head { background: inherit; margin: -18px -18px 0; padding: 18px 18px 8px; position: sticky; top: -18px; z-index: 1; }
+.board > .column { background: var(--c-171c18); }
+.board-nav { align-items: center; display: flex; gap: 8px; margin-top: 16px; }
+.board-nav > .refresh-button { flex: none; font-size: 16px; line-height: 1; padding: 4px 10px; }
+.board-nav-chips { display: flex; flex: 1; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+.board-nav-chips .chip { border-left-width: 3px; flex: none; text-transform: capitalize; white-space: nowrap; }
+.board-nav-chips .chip b { font-weight: 600; margin-left: 4px; }
+.office-overlay .board > .column { max-height: max(240px, calc(100dvh - 470px)); }
+.board-nav-chips .tone-border-good { border-left-color: var(--c-4fb986); } .board-nav-chips .tone-border-info { border-left-color: var(--c-5b9bd5); } .board-nav-chips .tone-border-bad { border-left-color: var(--c-d9695a); } .board-nav-chips .tone-border-muted { border-left-color: var(--c-5c655d); } .board-nav-chips .tone-border-unknown { border-left-color: var(--c-d59a4f); }
