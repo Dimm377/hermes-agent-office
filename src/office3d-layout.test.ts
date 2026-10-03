@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath } from './office3d-layout.ts'
+import { AISLE_Z, BUILDING, DESKS, ENTRANCE_X, GAME_DOOR, GAME_LANE_Z, GAME_ROOM, IDLE_ROUTE, IDLE_STOPS, IDLE_STOP_MS, LOUNGE_LANE_X, LOUNGE_SEATS, MEETING_TABLE, PAN_BOUNDS, createLayout, idlePlan, meetingSeat, SIDE_LANE_X, SIDEWALK_Z, clampTarget, idleStop, placementFor, walkPath, walkPath3, FLOOR_HEIGHT, STAIRS, BALCONY, floorOf, type Vec3 } from './office3d-layout.ts'
 import type { OfficeStation } from './types.ts'
 
 const station = (overrides: Partial<OfficeStation>): OfficeStation => ({
@@ -127,6 +127,59 @@ describe('office for any crew size', () => {
       const plan = idlePlan(seats, step * IDLE_STOP_MS, layout)
       const spots = seats.map((seat) => plan.get(seat)!.placement.position.join(','))
       expect(new Set(spots).size).toBe(12)
+    }
+  })
+})
+
+describe('lantai 2', () => {
+  it('has one bed per agent upstairs, above the desks, none sharing a place', () => {
+    const layout = createLayout(10)
+    expect(layout.beds).toHaveLength(10)
+    expect(new Set(layout.beds.map((bed) => bed.join(','))).size).toBe(10)
+    for (const [x, y] of layout.beds) {
+      expect(y).toBe(FLOOR_HEIGHT)
+      expect(x).toBeGreaterThan(layout.building.minX + 0.5)
+    }
+  })
+
+  it('goes up and down by the stairs, climbing them in order', () => {
+    const desk: Vec3 = [-4.6, 0, -2.75]
+    const bed: Vec3 = [-4.6, FLOOR_HEIGHT, -3.15]
+    const up = walkPath3(desk, bed)
+    const foot = up.findIndex(([x, y]) => x === STAIRS.lowX && y === 0)
+    const head = up.findIndex(([x, y]) => x === STAIRS.highX && y === FLOOR_HEIGHT)
+    expect(foot).toBeGreaterThan(-1)
+    expect(head).toBe(foot + 1)
+    // Nothing floats: before the stairs every point is on the ground, after them upstairs.
+    expect(up.slice(0, foot + 1).every(([, y]) => y === 0)).toBe(true)
+    expect(up.slice(head).every(([, y]) => y === FLOOR_HEIGHT)).toBe(true)
+    expect(up[up.length - 1]).toBe(bed)
+    const down = walkPath3(bed, desk)
+    expect(down.findIndex(([x, y]) => x === STAIRS.highX && y === FLOOR_HEIGHT)).toBe(down.findIndex(([x, y]) => x === STAIRS.lowX && y === 0) - 1)
+    expect(floorOf(down[down.length - 1])).toBe(1)
+  })
+
+  it('reaches the balcony through its door and the back row of beds between the columns', () => {
+    const layout = createLayout(6)
+    const balcony: Vec3 = [0.6 - 0.85, FLOOR_HEIGHT, 5.5]
+    const path = walkPath3([-3, FLOOR_HEIGHT, 0.4], balcony, layout)
+    // The step onto the balcony goes straight through the sliding door (x 6.2 to 7.4).
+    const out = path.findIndex(([, , z]) => z > BALCONY.minZ)
+    for (const [x] of [path[out - 1], path[out]]) expect(x > 6.2 && x < 7.4).toBe(true)
+    const backBed = layout.beds[0]
+    const toBed = walkPath3([backBed[0], FLOOR_HEIGHT, 0.4], [backBed[0], FLOOR_HEIGHT, backBed[2] + 0.95], layout)
+    for (const [x, , z] of toBed.slice(0, -1)) if (z < -0.6) expect(Math.abs(x - backBed[0])).toBeGreaterThan(0.6)
+  })
+
+  it('sends sleepers to bed first and keeps everyone else off their beds', () => {
+    const seats = [1, 2, 3, 4, 5, 6]
+    for (let step = 0; step < IDLE_ROUTE.length; step += 1) {
+      const plan = idlePlan(seats, step * IDLE_STOP_MS, createLayout(6), [2, 5])
+      for (const seat of [2, 5]) {
+        expect(plan.get(seat)!.stop.key).toBe('tidur')
+        expect(plan.get(seat)!.placement.pose).toBe('lie')
+      }
+      expect(new Set(seats.map((seat) => plan.get(seat)!.placement.position.join(','))).size).toBe(6)
     }
   })
 })

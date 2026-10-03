@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { ARCADES, BEANBAGS, CARROM, COFFEE_TABLE, FLAG, GAME_DOOR, GAME_ROOM, GAME_TV, LOUNGE_PARTITION_END_Z, MEETING_TABLE, PARTITION_X, PING_PONG, SOFA, STALL_ROTATION, type OfficeLayout, TV, type Vec3 } from '../office3d-layout.ts'
-import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, Beanbag, Bookshelf, CarromTable, CoffeeTable, FlagPole, Fridge, GalonDispenser, Gerobak, KopiSepeda, MeetingTable, OfficeLight, PantryCounter, PingPongTable, Plant, RBox, Sofa, StreetLamp, Television, Tree, Vendor, WallClock } from './props.tsx'
+import { ARCADES, BALCONY, BALCONY_DOOR, BALCONY_TABLE, BATHROOM, BEANBAGS, CARROM, COFFEE_TABLE, ENTRANCE_X, FLAG, FLOOR_HEIGHT, type Floor as FloorNumber, GAME_DOOR, GAME_ROOM, GAME_TV, HAMMOCK, LESEHAN_TABLE, LOUNGE_PARTITION_END_Z, MEETING_TABLE, PARTITION_X, PING_PONG, SOFA, STAIRS, STALL_ROTATION, type OfficeLayout, TV, type Vec3 } from '../office3d-layout.ts'
+import { AcOutdoorUnit, AirConditioner, ArcadeCabinet, Armchair, BathroomFittings, Beanbag, Bed, Bookshelf, CarromTable, ClothesLine, CoffeeTable, FlagPole, FloorCushion, Fridge, GalonDispenser, Gerobak, Hammock, KopiSepeda, LowTable, MeetingTable, Nightstand, OfficeLight, PantryCounter, PingPongTable, Plant, Railing, RattanChair, RBox, SideTable, Sofa, Staircase, StreetLamp, StringLights, Television, Tree, Vendor, WallClock, Wardrobe, WaterTank } from './props.tsx'
 import { asphalt, carpet, grass, pavingStones, tileFloor, woodFloor } from './textures.ts'
 
 // The building (floors, walls, windows, furniture) and its surroundings (yard, sidewalk,
@@ -124,7 +124,125 @@ function Building({ night, layout }: { night: boolean; layout: OfficeLayout }) {
     <AirConditioner position={[minX + 0.125, 2.3, 2.6]} rotation={Math.PI / 2}/>
     {/* Office lights: suspended cool-white LED bars */}
     {[...layout.desks.map(([x, , z]): Vec3 => [x, 2.4, z + 0.2]), [MEETING_TABLE[0], 2.3, MEETING_TABLE[2]] as Vec3, [COFFEE_TABLE[0], 2.4, COFFEE_TABLE[2] + 0.4] as Vec3, [8.2, 2.4, 1.2] as Vec3].map((position) => <OfficeLight key={position.join(',')} position={position} night={night}/>)}
+    <Stairs/>
     <GameRoom night={night}/>
+  </group>
+}
+
+function Stairs() {
+  return <Staircase position={[STAIRS.lowX, 0, STAIRS.z]} run={STAIRS.highX - STAIRS.lowX} rise={FLOOR_HEIGHT} width={STAIRS.width}/>
+}
+
+/** A glass pane along z = const (front walls), from `bottom` to `top`. */
+function GlassZ({ z, fromX, toX, bottom, top }: { z: number; fromX: number; toX: number; bottom: number; top: number }) {
+  return <RBox position={[(fromX + toX) / 2, (bottom + top) / 2, z]} size={[Math.abs(toX - fromX), top - bottom, 0.05]} radius={0.01} color="#cfe8ee" opacity={0.25} roughness={0.05} shadow={false}/>
+}
+
+/**
+ * Lantai 1 seen from lantai 2: the building closed up to full height (no cut-away), the game room
+ * with its roof and tandon air, and the stairs visible through the stairwell.
+ */
+function BuildingShell({ night, layout }: { night: boolean; layout: OfficeLayout }) {
+  const { minX, maxX, minZ, maxZ } = layout.building
+  const g = GAME_ROOM
+  return <group>
+    <Wall from={[minX, minZ]} to={[maxX, minZ]}/>
+    <Wall from={[minX, minZ]} to={[minX, maxZ]}/>
+    <Wall from={[maxX, minZ]} to={[maxX, maxZ]}/>
+    <Wall from={[minX, maxZ]} to={[4.9, maxZ]}/>
+    <Wall from={[6.7, maxZ]} to={[maxX, maxZ]}/>
+    {/* Glass entrance doors and shop windows facing the street */}
+    <GlassZ z={maxZ} fromX={4.9} toX={6.7} bottom={0} top={2.3}/>
+    <RBox position={[ENTRANCE_X, 2.45, maxZ]} size={[1.9, 0.3, 0.3]} radius={0.02} color={WALL_TOP}/>
+    {[-7, -3.6, -0.2, 2.6, 8.1].filter((x) => x > minX + 1).map((x) => <Window key={x} position={[x, 1.45, maxZ + 0.14]} night={night}/>)}
+    {[-3, 0.6, 3].map((z) => <group key={z} rotation={[0, -Math.PI / 2, 0]} position={[minX - 0.14, 1.45, z]}><Window position={[0, 0, 0]} width={1.6} night={night}/></group>)}
+    {/* Game room: full walls and a flat roof with the water tank */}
+    <Wall from={[g.minX, g.minZ]} to={[g.maxX, g.minZ]}/>
+    <Wall from={[g.maxX, g.minZ]} to={[g.maxX, g.maxZ]}/>
+    <Wall from={[g.minX, g.maxZ]} to={[g.maxX, g.maxZ]}/>
+    {[11, 13.8].map((x) => <Window key={x} position={[x, 1.45, g.maxZ + 0.14]} width={1.4} night={night}/>)}
+    <RBox position={[(g.minX + g.maxX) / 2, WALL_HEIGHT + 0.08, (g.minZ + g.maxZ) / 2]} size={[g.maxX - g.minX + 0.3, 0.16, g.maxZ - g.minZ + 0.3]} radius={0.02} color="#9a9a94" roughness={0.95}/>
+    <WaterTank position={[14.2, WALL_HEIGHT + 0.16, -3.8]}/>
+    <AcOutdoorUnit position={[11.2, WALL_HEIGHT + 0.16, -4.3]}/>
+    <Stairs/>
+  </group>
+}
+
+/** Lantai 2: dorm bedroom, lesehan corner, bathroom, and the balcony over the front. */
+function UpperFloor({ night, layout }: { night: boolean; layout: OfficeLayout }) {
+  const { minX, maxX, minZ, maxZ } = layout.building
+  const wood = useMemo(() => woodFloor([4, 4]), [])
+  const bedroomRug = useMemo(() => carpet('#6d5a8c', [3, 3]), [])
+  const lesehanRug = useMemo(() => carpet('#8c3b3b', [2, 2]), [])
+  const tiles = useMemo(() => tileFloor([2, 2]), [])
+  const balconyTiles = useMemo(() => tileFloor([6, 1]), [])
+  // The slab, leaving the stairwell open: [minX, maxX, minZ, maxZ] pieces.
+  const hole = { minX: STAIRS.highX, maxX: STAIRS.lowX, minZ: STAIRS.z - STAIRS.width / 2 - 0.05, maxZ: STAIRS.z + STAIRS.width / 2 + 0.05 }
+  const slab: [number, number, number, number][] = [
+    [minX, maxX, minZ, hole.minZ], [minX, hole.minX, hole.minZ, hole.maxZ], [hole.maxX, maxX, hole.minZ, hole.maxZ], [minX, maxX, hole.maxZ, maxZ],
+    [minX, maxX, BALCONY.minZ, BALCONY.maxZ],
+  ]
+  const blankets = ['#3d7fd6', '#e76f51', '#2a9d8f', '#e9c46a', '#8d5bc1', '#d64545']
+  const doorX = (BALCONY_DOOR.fromX + BALCONY_DOOR.toX) / 2
+  const balconyPosts = [minX + 0.15, (minX + maxX) / 2, maxX - 0.15]
+  const H = FLOOR_HEIGHT
+  return <group>
+    {/* Balcony columns down to the sidewalk (ruko style) and the frame for the string lights */}
+    {balconyPosts.map((x) => <RBox key={x} position={[x, (H + 2.3) / 2, BALCONY.maxZ - 0.12]} size={[0.18, H + 2.3, 0.18]} radius={0.02} color={WALL}/>)}
+    <RBox position={[(minX + maxX) / 2, H + 2.3, BALCONY.maxZ - 0.12]} size={[maxX - minX, 0.12, 0.14]} radius={0.02} color={WALL_TOP}/>
+    <group position={[0, H, 0]}>
+      {slab.map(([x1, x2, z1, z2]) => <RBox key={`${x1},${z1}`} position={[(x1 + x2) / 2, -0.11, (z1 + z2) / 2]} size={[x2 - x1, 0.22, z2 - z1]} radius={0.01} color="#cfc6b5"/>)}
+      {slab.slice(0, 4).map(([x1, x2, z1, z2]) => <Floor key={`f${x1},${z1}`} position={[(x1 + x2) / 2, 0.005, (z1 + z2) / 2]} size={[x2 - x1, z2 - z1]} map={wood} roughness={0.55}/>)}
+      <Floor position={[(minX + maxX) / 2, 0.005, (BALCONY.minZ + BALCONY.maxZ) / 2]} size={[maxX - minX, BALCONY.maxZ - BALCONY.minZ]} map={balconyTiles} roughness={0.5}/>
+      <Floor position={[(minX + PARTITION_X) / 2, 0.012, -2.4]} size={[PARTITION_X - minX - 0.4, 5]} map={bedroomRug}/>
+      <Floor position={[LESEHAN_TABLE[0], 0.012, LESEHAN_TABLE[2]]} size={[3.4, 2.8]} map={lesehanRug}/>
+      <Floor position={[(BATHROOM.minX + BATHROOM.maxX) / 2, 0.012, (BATHROOM.minZ + BATHROOM.maxZ) / 2]} size={[BATHROOM.maxX - BATHROOM.minX, BATHROOM.maxZ - BATHROOM.minZ]} map={tiles} roughness={0.3}/>
+      {/* Walls: full at the back and sides, glass sliding doors onto the balcony */}
+      <Wall from={[minX, minZ]} to={[maxX, minZ]}/>
+      <Wall from={[minX, minZ]} to={[minX, maxZ]}/>
+      <Wall from={[maxX, minZ]} to={[maxX, maxZ]}/>
+      <Wall from={[minX, maxZ]} to={[BALCONY_DOOR.fromX, maxZ]} height={0.3}/>
+      <Wall from={[BALCONY_DOOR.toX, maxZ]} to={[maxX, maxZ]} height={0.3}/>
+      <GlassZ z={maxZ} fromX={minX} toX={BALCONY_DOOR.fromX} bottom={0.3} top={2.2}/>
+      <GlassZ z={maxZ} fromX={BALCONY_DOOR.toX} toX={maxX} bottom={0.3} top={2.2}/>
+      {[-6, -2.4, 2.6].filter((x) => x > minX + 1).map((x) => <Window key={x} position={[x, 1.55, minZ + 0.14]} night={night}/>)}
+      <group rotation={[0, -Math.PI / 2, 0]} position={[maxX - 0.14, 1.55, 0.6]}><Window position={[0, 0, 0]} width={1.6} night={night}/></group>
+      {/* Bedroom: one bed per agent, a glass partition, wardrobes and bedside tables */}
+      <Wall from={[PARTITION_X, minZ]} to={[PARTITION_X, LOUNGE_PARTITION_END_Z]} height={0.9}/>
+      <Glass x={PARTITION_X} fromZ={minZ} toZ={LOUNGE_PARTITION_END_Z} bottom={0.9}/>
+      {layout.beds.map(([x, , z], index) => <Bed key={index} position={[x, 0, z]} color={blankets[index % blankets.length]}/>)}
+      {layout.beds.filter(([, , z]) => z < -3).map(([x], index) => <Nightstand key={index} position={[x - 0.85, 0, minZ + 0.4]} night={night}/>)}
+      <Wardrobe position={[minX + 0.4, 0, 1.4]} rotation={Math.PI / 2}/>
+      <Wardrobe position={[minX + 0.4, 0, 2.8]} rotation={Math.PI / 2}/>
+      <AirConditioner position={[(minX + PARTITION_X) / 2, 2.3, minZ + 0.125]}/>
+      {/* Lesehan corner */}
+      <LowTable position={[LESEHAN_TABLE[0], 0, LESEHAN_TABLE[2]]}/>
+      {[[-1, 0, '#e9c46a'], [1, 0, '#2a9d8f'], [0, -0.85, '#e76f51'], [0, 0.85, '#3d7fd6']].map(([dx, dz, color]) => <FloorCushion key={color as string} position={[LESEHAN_TABLE[0] + (dx as number), 0, LESEHAN_TABLE[2] + (dz as number)]} color={color as string}/>)}
+      <Bookshelf position={[6.5, 0, minZ + 0.3]}/>
+      <Plant position={[1.1, 0, minZ + 0.5]} size={0.9}/>
+      <Plant position={[7.1, 0, 1.4]}/>
+      {/* Bathroom: kamar mandi with a bak mandi */}
+      <Wall from={[BATHROOM.minX, minZ]} to={[BATHROOM.minX, BATHROOM.maxZ]} height={1.9}/>
+      <Wall from={[BATHROOM.minX, BATHROOM.maxZ]} to={[8, BATHROOM.maxZ]} height={1}/>
+      <Wall from={[8.9, BATHROOM.maxZ]} to={[maxX, BATHROOM.maxZ]} height={1}/>
+      <BathroomFittings position={[8.2, 0, -2.6]}/>
+      {/* Railing around the stairwell */}
+      <Railing position={[(hole.minX + hole.maxX) / 2, 0, hole.minZ]} length={hole.maxX - hole.minX}/>
+      <Railing position={[hole.maxX, 0, STAIRS.z]} length={hole.maxZ - hole.minZ} rotation={Math.PI / 2}/>
+      {[...layout.beds.filter((_, index) => index % 2 === 0).map(([x, , z]): Vec3 => [x, 2.4, z + 0.6]), [LESEHAN_TABLE[0], 2.4, LESEHAN_TABLE[2]] as Vec3, [doorX, 2.4, 2] as Vec3].map((position) => <OfficeLight key={position.join(',')} position={position} night={night}/>)}
+      {/* Balcony */}
+      <Railing position={[(minX + maxX) / 2, 0, BALCONY.maxZ - 0.05]} length={maxX - minX}/>
+      <Railing position={[minX + 0.05, 0, (BALCONY.minZ + BALCONY.maxZ) / 2]} length={BALCONY.maxZ - BALCONY.minZ} rotation={Math.PI / 2}/>
+      <Railing position={[maxX - 0.05, 0, (BALCONY.minZ + BALCONY.maxZ) / 2]} length={BALCONY.maxZ - BALCONY.minZ} rotation={Math.PI / 2}/>
+      <SideTable position={[BALCONY_TABLE[0], 0, BALCONY_TABLE[2]]}/>
+      <RattanChair position={[BALCONY_TABLE[0] - 0.85, 0, BALCONY_TABLE[2]]} rotation={Math.PI / 2}/>
+      <RattanChair position={[BALCONY_TABLE[0] + 0.85, 0, BALCONY_TABLE[2]]} rotation={-Math.PI / 2}/>
+      <Hammock position={[HAMMOCK[0], 0, HAMMOCK[2]]}/>
+      <ClothesLine position={[Math.max(minX + 1.6, -3.2), 0, 6.15]}/>
+      <Plant position={[maxX - 0.5, 0, BALCONY.minZ + 0.5]} size={0.9}/>
+      <Plant position={[minX + 0.5, 0, BALCONY.minZ + 0.5]} size={0.9}/>
+      <StringLights position={[(minX + maxX) / 2, 2.15, BALCONY.maxZ - 0.12]} length={maxX - minX - 0.6} night={night}/>
+    </group>
   </group>
 }
 
@@ -162,9 +280,10 @@ function Outdoors({ night, layout }: { night: boolean; layout: OfficeLayout }) {
   </group>
 }
 
-export function Environment({ night = false, layout }: { night?: boolean; layout: OfficeLayout }) {
+/** The grounds plus the floor in view: lantai 1 as a cut-away, or lantai 2 on top of the closed building. */
+export function Environment({ night = false, layout, floor = 1 }: { night?: boolean; layout: OfficeLayout; floor?: FloorNumber }) {
   return <group>
-    <Building night={night} layout={layout}/>
+    {floor === 1 ? <Building night={night} layout={layout}/> : <><BuildingShell night={night} layout={layout}/><UpperFloor night={night} layout={layout}/></>}
     <Outdoors night={night} layout={layout}/>
   </group>
 }

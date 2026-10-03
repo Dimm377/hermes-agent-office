@@ -445,3 +445,153 @@ export function CarromTable({ position }: { position: Vec3 }) {
     <PlasticStool position={[0, 0, -0.75]} color="#d64545"/>
   </Group>
 }
+
+// ---------------------------------------------------------------------------
+// Lantai 2: bedroom, lesehan corner, bathroom and balcony
+
+/** Single bed, head (pillow) towards -z. */
+export function Bed({ position, color = '#3d7fd6' }: { position: Vec3; color?: string }) {
+  return <Group position={position}>
+    <RBox position={[0, 0.2, 0]} size={[1.05, 0.26, 2.05]} radius={0.04} color="#7a5232" roughness={0.6}/>
+    <RBox position={[0, 0.4, 0.02]} size={[0.98, 0.16, 1.96]} radius={0.06} color="#f3f1ec" roughness={0.95}/>
+    <RBox position={[0, 0.62, -1.0]} size={[1.05, 0.7, 0.08]} radius={0.03} color="#6b4a32"/>
+    <RBox position={[0, 0.53, -0.72]} size={[0.62, 0.11, 0.34]} radius={0.05} color="#ffffff" roughness={0.95}/>
+    {/* Blanket over the lower part of the bed */}
+    <RBox position={[0, 0.5, 0.4]} size={[1.0, 0.06, 1.1]} radius={0.03} color={color} roughness={0.95}/>
+    {[[-0.47, 0.95], [0.47, 0.95]].map(([x, z]) => <RBox key={x} position={[x, 0.08, z]} size={[0.08, 0.16, 0.08]} radius={0.01} color="#5a3a24"/>)}
+  </Group>
+}
+
+/** Bedside table with a small lamp that glows in the evening. */
+export function Nightstand({ position, night }: { position: Vec3; night: boolean }) {
+  return <Group position={position}>
+    <RBox position={[0, 0.25, 0]} size={[0.42, 0.5, 0.38]} radius={0.03} color="#8a5a3a"/>
+    <Cyl position={[0, 0.56, 0]} radius={0.07} height={0.1} color="#d9d2c4"/>
+    <Cyl position={[0, 0.72, 0]} radius={0.1} top={0.07} height={0.18} color="#fff2d0" emissive="#ffd88a" emissiveIntensity={night ? 1.4 : 0.1}/>
+  </Group>
+}
+
+/** Lemari (wardrobe) against a wall, doors towards +z. */
+export function Wardrobe({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 1, 0]} size={[1.2, 2, 0.6]} radius={0.03} color="#a9784e" roughness={0.6}/>
+    <RBox position={[0, 1, 0.305]} size={[0.012, 1.9, 0.01]} radius={0.002} color="#5a3a24" shadow={false}/>
+    {[-0.08, 0.08].map((x) => <RBox key={x} position={[x, 1.05, 0.32]} size={[0.03, 0.18, 0.03]} radius={0.01} color="#d9c27a" metalness={0.6}/>)}
+  </Group>
+}
+
+/** Meja lesehan: a low table for sitting on the floor. */
+export function LowTable({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    <RBox position={[0, 0.3, 0]} size={[1.3, 0.06, 0.8]} radius={0.03} color="#7a5232" roughness={0.5}/>
+    {[[-0.55, -0.32], [0.55, -0.32], [-0.55, 0.32], [0.55, 0.32]].map(([x, z]) => <RBox key={`${x}${z}`} position={[x, 0.14, z]} size={[0.07, 0.28, 0.07]} radius={0.01} color="#5a3a24"/>)}
+    {/* Teko and gelas, and a plate of gorengan */}
+    <Cyl position={[-0.3, 0.42, 0]} radius={0.09} top={0.06} height={0.18} color="#e9e4d8"/>
+    {[0.05, 0.22].map((x) => <Cyl key={x} position={[x, 0.38, 0.15]} radius={0.035} height={0.09} color="#c98f4a" opacity={0.8}/>)}
+    <Cyl position={[0.35, 0.34, -0.12]} radius={0.15} height={0.02} color="#f4f1ea"/>
+    {[[0.3, -0.1], [0.4, -0.15], [0.35, -0.05]].map(([x, z]) => <RBox key={`${x}${z}`} position={[x, 0.37, z]} size={[0.09, 0.04, 0.06]} radius={0.015} color="#c98a3a"/>)}
+  </Group>
+}
+
+export function FloorCushion({ position, color }: { position: Vec3; color: string }) {
+  return <RBox position={[position[0], position[1] + 0.06, position[2]]} size={[0.55, 0.12, 0.55]} radius={0.05} color={color} roughness={0.95}/>
+}
+
+/** Kursi rotan (rattan chair), facing +z. */
+export function RattanChair({ position, rotation = 0 }: { position: Vec3; rotation?: number }) {
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 0.42, 0]} size={[0.6, 0.08, 0.56]} radius={0.04} color="#c49a5c" roughness={0.9}/>
+    <RBox position={[0, 0.48, 0.02]} size={[0.5, 0.06, 0.46]} radius={0.03} color="#e8dcc0" roughness={0.95}/>
+    <RBox position={[0, 0.78, -0.26]} size={[0.6, 0.66, 0.07]} radius={0.04} color="#c49a5c" roughness={0.9}/>
+    {[-0.3, 0.3].map((x) => <RBox key={x} position={[x, 0.6, 0]} size={[0.06, 0.08, 0.56]} radius={0.02} color="#b0884e"/>)}
+    {[[-0.25, -0.22], [0.25, -0.22], [-0.25, 0.22], [0.25, 0.22]].map(([x, z]) => <Cyl key={`${x}${z}`} position={[x, 0.2, z]} radius={0.025} height={0.4} color="#a67c45"/>)}
+  </Group>
+}
+
+/** Small round table with two cups of kopi. */
+export function SideTable({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    <Cyl position={[0, 0.52, 0]} radius={0.32} height={0.04} color="#c49a5c"/>
+    <Cyl position={[0, 0.26, 0]} radius={0.04} height={0.5} color="#8a6a3a"/>
+    {[-0.1, 0.12].map((x) => <Cyl key={x} position={[x, 0.59, 0.05]} radius={0.04} height={0.09} color="#ffffff"/>)}
+  </Group>
+}
+
+/** Hammock along x between two posts; the sag is a stretched half-cylinder. */
+export function Hammock({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    {[-1.1, 1.1].map((x) => <Cyl key={x} position={[x, 0.75, 0]} radius={0.05} height={1.5} color="#6b4a32"/>)}
+    <mesh position={[0, 0.62, 0]} rotation={[0, 0, Math.PI / 2]} scale={[1, 1, 1]} castShadow receiveShadow>
+      <cylinderGeometry args={[0.38, 0.38, 1.9, 16, 1, true, Math.PI / 2, Math.PI]}/>
+      <meshStandardMaterial color="#e76f51" roughness={0.95} side={THREE.DoubleSide}/>
+    </mesh>
+    {[-1, 1].map((side) => <Cyl key={side} position={[side * 1.02, 0.9, 0]} rotation={[0, 0, side * 0.9]} radius={0.01} height={0.32} color="#e9dcc0"/>)}
+  </Group>
+}
+
+/** Jemuran: a clothes line along x with a few shirts and a sarung drying. */
+export function ClothesLine({ position, length = 2.4 }: { position: Vec3; length?: number }) {
+  const clothes = ['#2a9d8f', '#f4f1ea', '#e9c46a', '#264653', '#d64545']
+  return <Group position={position}>
+    {[-length / 2, length / 2].map((x) => <Cyl key={x} position={[x, 0.85, 0]} radius={0.025} height={1.7} color="#9aa2a6" metalness={0.5}/>)}
+    <Cyl position={[0, 1.62, 0]} rotation={[0, 0, Math.PI / 2]} radius={0.006} height={length} color="#e9e4d8"/>
+    {clothes.map((color, index) => <RBox key={color} position={[-length / 2 + 0.35 + index * ((length - 0.7) / (clothes.length - 1)), 1.36, 0]} size={[0.34, index === 4 ? 0.6 : 0.46, 0.02]} radius={0.01} color={color} roughness={0.95}/>)}
+  </Group>
+}
+
+/** Balcony railing along x (length) with posts and a top rail. */
+export function Railing({ position, length, rotation = 0 }: { position: Vec3; length: number; rotation?: number }) {
+  const posts = Math.max(2, Math.round(length / 0.9) + 1)
+  return <Group position={position} rotation={rotation}>
+    <RBox position={[0, 1.0, 0]} size={[length, 0.06, 0.08]} radius={0.02} color="#3a3f44" metalness={0.5} roughness={0.4}/>
+    <RBox position={[0, 0.5, 0]} size={[length, 0.03, 0.04]} radius={0.01} color="#3a3f44" metalness={0.5}/>
+    {Array.from({ length: posts }, (_, index) => <RBox key={index} position={[-length / 2 + (index * length) / (posts - 1), 0.5, 0]} size={[0.05, 1, 0.05]} radius={0.01} color="#3a3f44" metalness={0.5}/>)}
+  </Group>
+}
+
+/** String lights (lampu tumblr) hanging along x; they glow in the evening. */
+export function StringLights({ position, length, night }: { position: Vec3; length: number; night: boolean }) {
+  const bulbs = Math.round(length / 0.45)
+  return <Group position={position}>
+    {Array.from({ length: bulbs }, (_, index) => {
+      const t = index / (bulbs - 1)
+      return <mesh key={index} position={[-length / 2 + t * length, -Math.sin(t * Math.PI) * 0.25, 0]}><sphereGeometry args={[0.05, 8, 6]}/><meshStandardMaterial color="#fff1c4" emissive="#ffcf6b" emissiveIntensity={night ? 2.2 : 0.2}/></mesh>
+    })}
+    {night && <pointLight position={[0, -0.4, 0]} color="#ffcf8a" intensity={6} distance={6} decay={2}/>}
+  </Group>
+}
+
+/** Straight stairs along x: `rise` up over `run` (negative run climbs towards -x). */
+export function Staircase({ position, run, rise, width }: { position: Vec3; run: number; rise: number; width: number }) {
+  const steps = 14
+  const tread = Math.abs(run) / steps
+  const direction = Math.sign(run)
+  return <Group position={position}>
+    {Array.from({ length: steps }, (_, index) => <RBox key={index} position={[direction * (index + 0.5) * tread, (index + 1) * (rise / steps) - 0.03, 0]} size={[tread + 0.04, 0.06, width]} radius={0.01} color="#8a5a3a" roughness={0.6}/>)}
+    {/* Stringer and handrail on the open side */}
+    <RBox position={[run / 2, rise / 2 - 0.1, -width / 2]} rotation={[0, 0, -direction * Math.atan2(rise, Math.abs(run))]} size={[Math.hypot(run, rise), 0.16, 0.06]} radius={0.02} color="#5a3a24"/>
+    <RBox position={[run / 2, rise / 2 + 0.85, -width / 2]} rotation={[0, 0, -direction * Math.atan2(rise, Math.abs(run))]} size={[Math.hypot(run, rise), 0.05, 0.05]} radius={0.02} color="#3a3f44" metalness={0.5}/>
+    {[0.25, 0.5, 0.75].map((t) => <RBox key={t} position={[run * t, rise * t + 0.42, -width / 2]} size={[0.04, 0.85, 0.04]} radius={0.01} color="#3a3f44" metalness={0.5}/>)}
+  </Group>
+}
+
+/** Tandon air: the water tank on a stand, on the game room's roof. */
+export function WaterTank({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    {[[-0.45, -0.45], [0.45, -0.45], [-0.45, 0.45], [0.45, 0.45]].map(([x, z]) => <RBox key={`${x}${z}`} position={[x, 0.5, z]} size={[0.07, 1, 0.07]} radius={0.01} color="#6d7479" metalness={0.5}/>)}
+    <RBox position={[0, 1.02, 0]} size={[1.1, 0.06, 1.1]} radius={0.01} color="#6d7479" metalness={0.5}/>
+    <Cyl position={[0, 1.6, 0]} radius={0.5} height={1.1} color="#2f6fb5" roughness={0.5}/>
+    <Cyl position={[0, 2.2, 0]} radius={0.28} height={0.1} color="#2a5f9c"/>
+  </Group>
+}
+
+/** Kamar mandi fittings: bak mandi with a gayung, and a toilet. */
+export function BathroomFittings({ position }: { position: Vec3 }) {
+  return <Group position={position}>
+    <RBox position={[0.95, 0.4, -1.75]} size={[0.9, 0.8, 0.7]} radius={0.03} color="#5aa9c9" roughness={0.3}/>
+    <RBox position={[0.95, 0.79, -1.75]} size={[0.78, 0.02, 0.58]} radius={0.01} color="#9fd3ea" opacity={0.8} roughness={0.05} shadow={false}/>
+    <Cyl position={[0.75, 0.86, -1.6]} radius={0.09} height={0.12} color="#e63946"/>
+    <RBox position={[-0.3, 0.2, -1.8]} size={[0.42, 0.4, 0.55]} radius={0.12} color="#f6f7f5" roughness={0.25}/>
+    <RBox position={[-0.3, 0.6, -2.05]} size={[0.42, 0.45, 0.16]} radius={0.04} color="#f6f7f5" roughness={0.25}/>
+  </Group>
+}

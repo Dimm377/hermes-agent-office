@@ -11,6 +11,10 @@ import type { OfficeStation } from './types.ts'
 //   z  4 └── low front wall ─── entrance ───────────┘
 //        sidewalk · flag      (street food sits in the gang left of the building)
 //        road
+//
+// Lantai 2 sits on the same footprint, FLOOR_HEIGHT up: a dorm bedroom (one bed per agent, above
+// the desks), a lesehan corner and a bathroom, reached by the stairs by the entrance, with a
+// ruko-style balcony over the front. Positions on lantai 2 have y = FLOOR_HEIGHT.
 
 export type Vec3 = [number, number, number]
 
@@ -46,6 +50,27 @@ export const STALL_ROTATION = Math.PI / 2
 /** The flag stands at the front-right corner of the grounds, clear of the rooms in view. */
 export const FLAG: Vec3 = [16.4, 0, 2.6]
 
+/** Height of lantai 2's floor above the ground. */
+export const FLOOR_HEIGHT = 2.8
+export type Floor = 1 | 2
+export const floorOf = (position: Vec3 | number): Floor => ((typeof position === 'number' ? position : position[1]) > FLOOR_HEIGHT / 2 ? 2 : 1)
+/** Straight stairs by the entrance, rising towards -x: lantai 1 at lowX, lantai 2 at highX. */
+export const STAIRS = { z: 3.45, width: 0.9, lowX: 4.7, highX: 1.8 }
+/** Where agents step on and off the stairs on each floor. */
+const STAIRS_FOOT: [number, number] = [5.2, STAIRS.z]
+const STAIRS_HEAD: [number, number] = [1.3, STAIRS.z]
+/** Balcony over the front of the building, and the sliding door onto it. */
+export const BALCONY = { minZ: 4.2, maxZ: 6.6 }
+export const BALCONY_DOOR = { fromX: 6.2, toX: 7.4 }
+const BALCONY_LANE_Z = 5
+export const BALCONY_TABLE: Vec3 = [0.6, FLOOR_HEIGHT, 5.5]
+export const HAMMOCK: Vec3 = [4.2, FLOOR_HEIGHT, 5.95]
+/** Lesehan corner upstairs: a low table on a carpet with floor cushions around it. */
+export const LESEHAN_TABLE: Vec3 = [4.3, FLOOR_HEIGHT, -3]
+export const BATHROOM = { minX: 7.6, maxX: 9.5, minZ: -5.2, maxZ: -2.6 }
+/** Beds stand above the desk columns, in two rows with their heads to the back wall. */
+const BED_ROWS_Z = [-4.1, -1.6]
+
 /** Hot desking: one unlabeled desk per agent, in two rows that grow to the left. */
 const DESK_RIGHT_X = -2
 const DESK_PITCH = 2.6
@@ -56,13 +81,19 @@ const BASE_MIN_X = -9.5
 const BASE_SCENE_WIDTH = 28.7
 const CAMERA_OFFSET_BASE: Vec3 = [-3.9, 15.2, 18.8]
 
-export interface Placement { position: Vec3; facing: number; seated: boolean; label?: string }
+/**
+ * Where and how an agent is. `pose` lying (bed, hammock: `height` is the surface) or sitting on
+ * the floor (lesehan); otherwise standing, or sitting on a chair when `seated`.
+ */
+export interface Placement { position: Vec3; facing: number; seated: boolean; label?: string; pose?: 'lie' | 'floor'; height?: number }
 export interface IdleStop { key: string; label: string; spots: Placement[] }
 
 export interface OfficeLayout {
   deskCount: number
   building: { minX: number; maxX: number; minZ: number; maxZ: number }
   desks: Vec3[]
+  /** One bed per agent on lantai 2 (y = FLOOR_HEIGHT). */
+  beds: Vec3[]
   /** Walking line up the gang (alley) along the left outside wall, between the wall and the carts. */
   sideLaneX: number
   /** Street food parks in the gang, turned so its stools and customers face the building. */
@@ -76,6 +107,9 @@ export interface OfficeLayout {
 }
 
 const spot = (x: number, z: number, facing: number, seated = false, label?: string): Placement => ({ position: [x, 0, z], facing, seated, ...(label ? { label } : {}) })
+const upstairs = (x: number, z: number, facing: number, extra: Partial<Placement> = {}): Placement => ({ position: [x, FLOOR_HEIGHT, z], facing, seated: false, ...extra })
+/** Lying in a bed: feet at the foot end, head on the pillow by the back wall. */
+export const bedSpot = ([x, , z]: Vec3, label?: string): Placement => upstairs(x, z + 0.95, 0, { pose: 'lie', height: 0.5, ...(label ? { label } : {}) })
 /** A spot given in a stall's own coordinates (as if unrotated), placed in the world. */
 function stallSpot(stall: Vec3, x: number, z: number, facing: number, seated = false): Placement {
   const cos = Math.cos(STALL_ROTATION)
@@ -87,8 +121,17 @@ function stallSpot(stall: Vec3, x: number, z: number, facing: number, seated = f
  * Where idle agents spend their time. Each stop has a few spots; idlePlan spreads agents so that
  * no two share a spot while free ones remain.
  */
-function idleStops(building: OfficeLayout['building'], baksoCart: Vec3, kopiBike: Vec3): IdleStop[] {
+function idleStops(building: OfficeLayout['building'], baksoCart: Vec3, kopiBike: Vec3, beds: Vec3[]): IdleStop[] {
+  const [tableX, , tableZ] = LESEHAN_TABLE
   return [
+    { key: 'tidur', label: 'Sleeping', spots: beds.map((bed) => bedSpot(bed)) },
+    { key: 'balkon', label: 'Relaxing on the balcony', spots: [
+      upstairs(BALCONY_TABLE[0] - 0.85, BALCONY_TABLE[2], Math.PI / 2, { seated: true }),
+      upstairs(BALCONY_TABLE[0] + 0.85, BALCONY_TABLE[2], -Math.PI / 2, { seated: true }),
+      upstairs(HAMMOCK[0] + 0.9, HAMMOCK[2], -Math.PI / 2, { pose: 'lie', height: 0.62, label: 'Napping in the hammock' }),
+      upstairs(7.9, BALCONY.maxZ - 0.45, 0, { label: 'Enjoying the view from the balcony' }),
+    ] },
+    { key: 'lesehan', label: 'Lesehan upstairs', spots: [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -0.85, 0], [0, 0.85, Math.PI]].map(([dx, dz, facing]) => upstairs(tableX + dx, tableZ + dz, facing, { pose: 'floor' })) },
     { key: 'lounge', label: 'Relaxing in the lounge', spots: LOUNGE_SEATS.map(([x, , z], index) => spot(x, z, LOUNGE_FACING[index], true)) },
     { key: 'galon', label: 'Getting water from the galon', spots: [spot(8.35, -0.4, Math.PI / 2), spot(8.2, -1.05, 2.2), spot(8.2, 0.3, 1.1)] },
     // On the gerobak's plastic stools, facing the cart.
@@ -114,17 +157,18 @@ export function createLayout(agentCount: number): OfficeLayout {
   const minX = DESK_RIGHT_X - (columns - 1) * DESK_PITCH - 2.3
   const shift = minX - BASE_MIN_X
   const building = { minX, maxX: 9.5, minZ: -5.2, maxZ: 4.2 }
+  const beds: Vec3[] = desks.map(([x], index) => [x, FLOOR_HEIGHT, BED_ROWS_Z[index < columns ? 0 : 1]])
   const baksoCart: Vec3 = [-11.9 + shift, 0, -2.3]
   const kopiBike: Vec3 = [-11.9 + shift, 0, 1.6]
   const sceneMinX = minX - 3.7
   const scale = (GAME_ROOM.maxX - sceneMinX) / BASE_SCENE_WIDTH
   return {
-    deskCount, building, desks, baksoCart, kopiBike,
+    deskCount, building, desks, beds, baksoCart, kopiBike,
     sideLaneX: -10.15 + shift,
     gangCenterX: -11.4 + shift,
     camera: { target: [(sceneMinX + GAME_ROOM.maxX) / 2 - 0.15, 0.6, 0.2], offset: CAMERA_OFFSET_BASE.map((value) => value * scale) as Vec3 },
     pan: { minX: sceneMinX - 0.3, maxX: 17, minZ: -7, maxZ: 11 },
-    idleStops: idleStops(building, baksoCart, kopiBike),
+    idleStops: idleStops(building, baksoCart, kopiBike, beds),
   }
 }
 
@@ -168,6 +212,10 @@ const inLounge = ([x, z]: [number, number]) => x > 1.5 && x < 7.8 && z < -0.6
  */
 export function walkPath(from: [number, number], to: [number, number], layout: OfficeLayout = DEFAULT_LAYOUT): [number, number][] {
   if (Math.hypot(to[0] - from[0], to[1] - from[1]) < 0.3) return [to]
+  return simplify(from, groundRoute(from, to, layout), to)
+}
+
+function groundRoute(from: [number, number], to: [number, number], layout: OfficeLayout): [number, number][] {
   const { building, sideLaneX } = layout
   const outside = (point: [number, number]) => point[1] > building.maxZ || point[0] < building.minX || (point[0] > building.maxX && !inGameRoom(point))
   const inGang = ([x]: [number, number]) => x < building.minX
@@ -187,6 +235,46 @@ export function walkPath(from: [number, number], to: [number, number], layout: O
     route.push(...toSidewalk(from), [ENTRANCE_X, SIDEWALK_Z], [ENTRANCE_X, AISLE_Z], ...toAisle(to).reverse())
   }
   route.push(to)
+  return route
+}
+
+/** Waypoints on lantai 2: along its aisle, into the bedroom between the bed columns, and out
+ * through the sliding door onto the balcony. */
+function upperRoute(from: [number, number], to: [number, number], layout: OfficeLayout): [number, number][] {
+  const onBalcony = ([, z]: [number, number]) => z > BALCONY.minZ
+  const doorX = (BALCONY_DOOR.fromX + BALCONY_DOOR.toX) / 2
+  const inBedroom = ([x, z]: [number, number]) => x < PARTITION_X && z < -0.3
+  // Beds share columns, so the back row is reached through the gap beside its column.
+  const gapX = (x: number) => Math.min(x + DESK_PITCH / 2, PARTITION_X - 0.3)
+  const toAisle = (point: [number, number]): [number, number][] => onBalcony(point) ? [[point[0], BALCONY_LANE_Z], [doorX, BALCONY_LANE_Z], [doorX, AISLE_Z]]
+    : inBedroom(point) ? [[gapX(point[0]), point[1]], [gapX(point[0]), AISLE_Z]] : [[point[0], AISLE_Z]]
+  void layout
+  return [from, ...toAisle(from), ...toAisle(to).reverse(), to]
+}
+
+/**
+ * Waypoints between any two spots, on either floor (y is the floor height). Changing floors goes
+ * by the stairs: along the floor to the foot (or head) of the stairs, up (or down) them, and on.
+ */
+export function walkPath3(from: Vec3, to: Vec3, layout: OfficeLayout = DEFAULT_LAYOUT): Vec3[] {
+  const flat = ([x, , z]: Vec3): [number, number] => [x, z]
+  const at = (y: number) => ([x, z]: [number, number]): Vec3 => [x, y, z]
+  const fromFloor = floorOf(from)
+  const toFloor = floorOf(to)
+  const route = (floor: Floor, a: [number, number], b: [number, number]) => Math.hypot(b[0] - a[0], b[1] - a[1]) < 0.3 ? [b]
+    : simplify(a, floor === 1 ? groundRoute(a, b, layout) : upperRoute(a, b, layout), b)
+  if (fromFloor === toFloor) return route(fromFloor, flat(from), flat(to)).map(at(fromFloor === 1 ? 0 : FLOOR_HEIGHT)).map((point, index, all) => index === all.length - 1 ? to : point)
+  const stairs: Vec3[] = [[STAIRS.lowX, 0, STAIRS.z], [STAIRS.highX, FLOOR_HEIGHT, STAIRS.z]]
+  const up = fromFloor === 1
+  return [
+    ...route(fromFloor, flat(from), up ? STAIRS_FOOT : STAIRS_HEAD).map(at(up ? 0 : FLOOR_HEIGHT)),
+    ...(up ? stairs : [...stairs].reverse()),
+    ...route(toFloor, up ? STAIRS_HEAD : STAIRS_FOOT, flat(to)).map(at(up ? FLOOR_HEIGHT : 0)).slice(0, -1),
+    to,
+  ]
+}
+
+function simplify(from: [number, number], route: [number, number][], to: [number, number]): [number, number][] {
   // Drop waypoints that do not move the agent somewhere new, then any middle point of three on
   // one straight line (so going out to the aisle and straight back becomes one straight walk).
   const points: [number, number][] = [from]
@@ -206,7 +294,7 @@ export function walkPath(from: [number, number], to: [number, number], layout: O
 
 /** How long an idle agent stays at one stop (walking included). */
 export const IDLE_STOP_MS = 32_000
-export const IDLE_ROUTE = ['lounge', 'galon', 'game', 'bakso', 'jalan', 'arcade', 'kopi', 'dapur', 'game', 'lounge']
+export const IDLE_ROUTE = ['lounge', 'galon', 'balkon', 'game', 'bakso', 'tidur', 'jalan', 'arcade', 'lesehan', 'kopi', 'dapur', 'balkon', 'game', 'tidur']
 
 export interface IdleAssignment { stop: IdleStop; placement: Placement }
 
@@ -216,12 +304,19 @@ export interface IdleAssignment { stop: IdleStop; placement: Placement }
  * an agent whose stop is already full moves on along the route, so nobody shares a spot while
  * free ones remain.
  */
-export function idlePlan(seats: number[], time: number, layout: OfficeLayout = DEFAULT_LAYOUT): Map<number, IdleAssignment> {
+export function idlePlan(seats: number[], time: number, layout: OfficeLayout = DEFAULT_LAYOUT, sleepers: number[] = []): Map<number, IdleAssignment> {
   const plan = new Map<number, IdleAssignment>()
   const taken = new Map<string, number>()
   const step = Math.floor(time / IDLE_STOP_MS)
   const stopAt = (index: number) => layout.idleStops.find((item) => item.key === IDLE_ROUTE[index % IDLE_ROUTE.length])!
-  for (const seat of [...seats].sort((a, b) => a - b)) {
+  // Sleepers (when the viewer sends idle agents to bed) stay in bed; they take the first beds.
+  const beds = layout.idleStops.find((item) => item.key === 'tidur')!
+  for (const seat of [...sleepers].sort((a, b) => a - b)) {
+    const used = taken.get('tidur') ?? 0
+    taken.set('tidur', used + 1)
+    plan.set(seat, { stop: beds, placement: beds.spots[used % beds.spots.length] })
+  }
+  for (const seat of [...seats].filter((item) => !plan.has(item)).sort((a, b) => a - b)) {
     const start = step + (Math.max(seat, 1) - 1) * 3
     let stop = stopAt(start)
     for (let offset = 0; offset < IDLE_ROUTE.length; offset += 1) {
