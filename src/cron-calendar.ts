@@ -5,7 +5,7 @@ import type { ScheduledJob } from './types.ts'
 // (ignoring the offset), so nothing shifts when the browser is in another time zone.
 
 export type EntryKind = 'run' | 'interval' | 'overdue' | 'last-ok' | 'last-failed'
-export interface CalendarEntry { job: string; kind: EntryKind; label: string; agent?: string }
+export interface CalendarEntry { job: string; kind: EntryKind; label: string; agent?: string; displayName?: string }
 
 /** yyyy-mm-dd for a calendar day. */
 export function dayKey(year: number, month: number, day: number): string {
@@ -61,7 +61,7 @@ export function monthEntries(jobs: ScheduledJob[], year: number, month: number, 
   const add = (key: string, entry: CalendarEntry) => entries.set(key, [...(entries.get(key) ?? []), entry])
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   for (const job of jobs) {
-    const tag = job.agent ? { agent: job.agent } : {}
+    const tag = job.agent ? { agent: job.agent, ...(job.displayName ? { displayName: job.displayName } : {}) } : {}
     const status = (job.status ?? '').toLowerCase()
     const schedules = !['paused', 'completed', 'done', 'disabled'].includes(status)
     const next = wallClock(job.nextRun)

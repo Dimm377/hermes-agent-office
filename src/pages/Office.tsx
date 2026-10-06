@@ -155,7 +155,7 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
   const office = snapshot.status === 'ready' ? snapshot.data : undefined
   const activity = activitySnapshot.status === 'ready' ? activitySnapshot.data : undefined
   const channels = channelsSnapshot.status === 'ready' ? channelsSnapshot.data : undefined
-  const [selectedName, setSelectedName] = useState<OfficeStation['name'] | undefined>()
+  const [selectedId, setSelectedId] = useState<OfficeStation['id'] | undefined>()
   const selectedTrigger = useRef<HTMLElement | null>(null)
   const [chosenRoom, setChosenRoom] = useState<OfficeRoom | undefined>()
   const [view, setView] = useState<OfficeView>(() => typeof window === 'undefined' ? '2d' : storedView())
@@ -171,24 +171,24 @@ export function Office({ dashboard, dashboardPending = false, onNavigate }: { da
     try { window.localStorage.setItem('mc.officeView', next) } catch { /* storage may be blocked */ }
   }
   const show3d = view === '3d' && webgl
-  const select3d = (station: OfficeStation, trigger: HTMLElement | null) => { selectedTrigger.current = trigger; setSelectedName(station.name) }
+  const select3d = (station: OfficeStation, trigger: HTMLElement | null) => { selectedTrigger.current = trigger; setSelectedId(station.id) }
   const counts = Object.fromEntries(ROOMS.map((item) => [item, office?.stations.filter((station) => station.room === item).length ?? 0])) as Record<OfficeRoom, number>
   // Until the viewer picks a room, open wherever the crew currently is.
   const room: OfficeRoom = chosenRoom ?? (counts.Workspace === 0 && counts.Lounge > 0 ? 'Lounge' : 'Workspace')
   const stations = office?.stations.filter((station) => station.room === room) ?? []
-  const selected = office?.stations.find((station) => station.name === selectedName)
+  const selected = office?.stations.find((station) => station.id === selectedId)
   const sessions = activity?.sessions
   const channelSource = channels?.channels
   const closeDetail = () => {
-    setSelectedName(undefined)
+    setSelectedId(undefined)
     selectedTrigger.current?.focus()
   }
   if (snapshot.status === 'pending') return <LoadingState message="Reading office state..."/>
   const hud = hudItems(office, dashboard)
   // Hot desking: one unlabeled desk per agent.
   const deskCount = office?.stations.length ?? 0
-  const stationButton2d = (station: OfficeStation) => { const badge = officeStateBadge(station.state); const busy = ['Working', 'Reviewing', 'Collaborating'].includes(station.state); return <button className={`pixel-station ${station.roomPosition} state-${station.state.toLowerCase()}`} key={station.id} onClick={(event) => { selectedTrigger.current = event.currentTarget; setSelectedName(station.name) }} aria-label={`${station.name}. ${officeStateLabel(station)}${station.activity ? `: ${station.activity}` : ''}. Open station details.`} title={station.activity || officeStateLabel(station)}>{busy && station.activity && <span className="speech" aria-hidden="true">{station.activity}</span>}<span className="pixel-station-name">{station.name}</span><span className={`badge ${badge.tone}`}>{officeStateLabel(station)}</span>{station.state === 'Unknown' && <span className="neutral-label">NEUTRAL PRESENCE</span>}<PixelCharacter agent={station.id}/></button> }
-  const stationButton = (station: OfficeStation) => { const badge = officeStateBadge(station.state); return <button type="button" className="crew-row" key={station.name} onClick={(event) => { selectedTrigger.current = event.currentTarget; setSelectedName(station.name) }} aria-label={`Details for ${station.name}: ${officeStateLabel(station)}`}><PixelCharacter agent={station.id}/><span><strong>{station.name}</strong><small>{station.activity || station.role}</small></span><span className={`badge ${badge.tone}`}>{station.state}</span></button> }
+  const stationButton2d = (station: OfficeStation) => { const badge = officeStateBadge(station.state); const busy = ['Working', 'Reviewing', 'Collaborating'].includes(station.state); return <button className={`pixel-station ${station.roomPosition} state-${station.state.toLowerCase()}`} key={station.id} onClick={(event) => { selectedTrigger.current = event.currentTarget; setSelectedId(station.id) }} aria-label={`${station.name}. ${officeStateLabel(station)}${station.activity ? `: ${station.activity}` : ''}. Open station details.`} title={station.activity || officeStateLabel(station)}>{busy && station.activity && <span className="speech" aria-hidden="true">{station.activity}</span>}<span className="pixel-station-name">{station.name}</span><span className={`badge ${badge.tone}`}>{officeStateLabel(station)}</span>{station.state === 'Unknown' && <span className="neutral-label">NEUTRAL PRESENCE</span>}<PixelCharacter agent={station.id}/></button> }
+  const stationButton = (station: OfficeStation) => { const badge = officeStateBadge(station.state); return <button type="button" className="crew-row" key={station.id} onClick={(event) => { selectedTrigger.current = event.currentTarget; setSelectedId(station.id) }} aria-label={`Details for ${station.name}: ${officeStateLabel(station)}`}><PixelCharacter agent={station.id}/><span><strong>{station.name}</strong><small>{station.activity || station.role}</small></span><span className={`badge ${badge.tone}`}>{station.state}</span></button> }
   return <section className={`office-stage view-${show3d ? '3d' : '2d'}`} aria-label="Visual Office">
     <div className="office-hud" role="list" aria-label="Key statistics">{hud.map((item) => { const body = <><span>{item.label}</span><b>{item.value}</b></>; return <div role="listitem" key={item.label}>{item.page && onNavigate ? <button type="button" className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title ?? `Open ${item.page}`} onClick={() => onNavigate(item.page!)}>{body}</button> : <span className={`hud-chip${item.tone ? ` ${item.tone}` : ''}`} title={item.title}>{body}</span>}</div> })}</div>
     <div className="office-stage-tools">

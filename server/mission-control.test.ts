@@ -147,6 +147,19 @@ describe('Office snapshot', () => {
     fetchedAt: '2026-09-27T12:00:00.000Z',
   }
 
+  it('uses a display name only as a label, keeping canonical state and task attribution', () => {
+    const named = { ...runtime, profiles: { ...runtime.profiles, data: [
+      { ...runtime.profiles.data[0], displayName: 'Lead Engineer' }, runtime.profiles.data[1],
+    ] } }
+    const office = buildOfficeSnapshot(named, {
+      tasks: { availability: 'available', data: [{ title: 'Ship the fix', status: 'running', assignee: 'default' }] }, fetchedAt: named.fetchedAt,
+    }, { sessions: { availability: 'available', data: [] }, fetchedAt: named.fetchedAt }, {
+      now: named.fetchedAt, explicitStates: [{ station: 'default', state: 'Reviewing', expiresAt: '2026-09-27T12:00:10.000Z' }],
+    })
+    expect(office.stations[0]).toMatchObject({ id: 'default', name: 'Lead Engineer', state: 'Reviewing', currentTask: 'Ship the fix' })
+    expect(office.stations[1]).toMatchObject({ id: 'coder', name: 'coder' })
+  })
+
   it('places the no-work crew in Lounge as server-managed Idle', () => {
     const office = buildOfficeSnapshot(runtime, { tasks: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { sessions: { availability: 'available', data: [] }, fetchedAt: runtime.fetchedAt }, { now: runtime.fetchedAt })
 
@@ -234,7 +247,7 @@ describe('Office snapshot', () => {
 })
 
 describe('calendar across profiles', () => {
-  const profileList = `\n Profile          Model                        Gateway      Alias        Distribution\n ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────\n ◆default         anthropic/claude-sonnet-4    running      —            —\n  coder    openai/gpt-5.5               running      le           —\n  research        —                            stopped      —            —\n`
+  const profileList = `\n Profile          Model                        Gateway      Alias        Distribution\n ───────────────    ───────────────────────────    ───────────    ───────────    ────────────────────\n ◆Lead Engineer (default)         anthropic/claude-sonnet-4    running      —            —\n  coder    openai/gpt-5.5               running      le           —\n  research        —                            stopped      —            —\n`
   const cron = (id: string, name: string) => `  ${id} [active]\n    Name:      ${name}\n    Schedule:  0 8 * * *\n    Repeat:    ∞\n    Next run:  2026-09-28T08:00:00+07:00\n`
 
   it('reads every profile with -p and tags each job with its profile', async () => {
@@ -248,7 +261,7 @@ describe('calendar across profiles', () => {
     })
     expect(calls).toContainEqual(['-p', 'coder', 'cron', 'list', '--all'])
     expect(calendar.jobs.availability).toBe('available')
-    expect(calendar.jobs.data.map((job) => [job.agent, job.name])).toEqual([['default', 'Morning brief'], ['coder', 'Nightly review']])
+    expect(calendar.jobs.data.map((job) => [job.agent, job.displayName, job.name])).toEqual([['default', 'Lead Engineer', 'Morning brief'], ['coder', undefined, 'Nightly review']])
     expect(calendar.failedProfiles).toBeUndefined()
   })
 

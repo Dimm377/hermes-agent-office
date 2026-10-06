@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { excludedFor, FolderError, fsError, hermesRoot, listFolder, publicAgent, readFolderFile, resolveAgentFolders, safeRelativePath } from './folders.js'
-import { buildOfficeSnapshot, collectAgentActivity, CommandError, parseRecentActivity, type AgentActivitySnapshot } from './mission-control.js'
+import { buildOfficeSnapshot, collectAgentActivity, collectOpenCodeActivity, CommandError, parseRecentActivity, type AgentActivitySnapshot } from './mission-control.js'
 
 const at = '2026-09-27T12:00:00.000Z'
 const runtime = { profiles: { availability: 'available' as const, data: [{ name: 'default', model: 'm', gateway: 'Running' as const }, { name: 'coder', model: 'm', gateway: 'Running' as const }] }, openCode: { availability: 'available' as const, data: '1' }, fetchedAt: at }
@@ -42,22 +42,60 @@ describe('live agent activity', () => {
     expect(calls.join(' ')).not.toContain('--evil')
     expect(snapshot.agents).toMatchObject([{ profile: 'default', availability: 'available', active: true, kind: 'thinking' }, { profile: 'coder', availability: 'available', active: false }])
   })
+
+  it('detects an owned OpenCode process and attributes its injected Hermes session profile without exposing argv', async () => {
+    const activity = await collectOpenCodeActivity(['default', 'coder'], async (file, args) => {
+      expect(file).toBe('ps')
+      expect(args).toEqual(process.platform === 'linux' && typeof process.getuid === 'function'
+        ? ['-u', String(process.getuid()), '-o', 'pid=,ppid=,args=']
+        : ['-eo', 'pid=,ppid=,args='])
+      return '102 55 opencode run --title "sync private customer request" --prompt confidential-user-request\n55 1 hermes gateway\n'
+    }, async (pid) => {
+      expect(pid).toBe('102')
+      return 'coder'
+    })
+
+    expect(activity).toEqual({ availability: 'available', active: true, profile: 'coder' })
+    expect(JSON.stringify(activity)).not.toContain('sync')
+    expect(JSON.stringify(activity)).not.toContain('confidential-user-request')
+    expect(JSON.stringify(activity)).not.toContain('private customer request')
+  })
+
+  it('requires an OpenCode executable as argv[0], excludes version probes, and becomes idle after no process', async () => {
+    const readProfile = async () => { throw new Error('not needed') }
+    const mentionedLater = await collectOpenCodeActivity(['default'], async () => '101 1 node worker.js opencode run --title leaked-title\n', readProfile)
+    const version = await collectOpenCodeActivity(['default'], async () => '101 1 /usr/local/bin/opencode --version\n', readProfile)
+    const idle = await collectOpenCodeActivity(['default'], async () => '', readProfile)
+
+    expect(mentionedLater).toEqual({ availability: 'available', active: false })
+    expect(version).toEqual({ availability: 'available', active: false })
+    expect(idle).toEqual({ availability: 'available', active: false })
+  })
 })
 
 describe('office placement from live activity', () => {
   const live = (agents: AgentActivitySnapshot['agents']): AgentActivitySnapshot => ({ agents, fetchedAt: at })
 
-  it('moves a chatting or scheduled agent out of the Lounge into the Workspace', () => {
+  it('uses a live OpenCode process rather than a stale agent-log mention', async () => {
+    const openCodeActivity = await collectOpenCodeActivity(['default', 'coder'], async () => '102 55 opencode run --title sync-ruang-runtime\n55 1 hermes gateway\n', async () => 'coder')
     const office = buildOfficeSnapshot(runtime, emptyBoard, emptyActivity, { now: at, agentActivity: live([
       { profile: 'default', availability: 'available', active: true, kind: 'chat', label: 'Replying to a chat', mentionsOpenCode: false },
       { profile: 'coder', availability: 'available', active: true, kind: 'cron', label: 'Running a scheduled job', mentionsOpenCode: true },
-    ]) })
+    ]), openCodeActivity })
     expect(office.stations).toMatchObject([
       { name: 'default', state: 'Collaborating', room: 'Workspace', roomPosition: 'meeting-area', activity: 'Replying to a chat', seat: 1 },
       { name: 'coder', state: 'Working', room: 'Workspace', roomPosition: 'assigned-desk', activity: 'Running a scheduled job', seat: 2 },
-      { name: 'opencode', state: 'Working', room: 'Workspace', activity: 'Building via OpenCode', seat: 3 },
+      { name: 'opencode', state: 'Working', room: 'Workspace', activity: 'OpenCode (coder): Running OpenCode', seat: 3 },
     ])
+    expect(office.stations[2].provenance).toContain('Hermes profile coder')
+    expect(office.stations[2].provenance).toContain('OpenCode (coder): Running OpenCode')
     expect(office.summary).toMatchObject({ active: 3, idle: 0 })
+
+    const stopped = buildOfficeSnapshot(runtime, emptyBoard, emptyActivity, { now: at, agentActivity: live([
+      { profile: 'default', availability: 'available', active: true, kind: 'chat', label: 'Replying to a chat', mentionsOpenCode: false },
+      { profile: 'coder', availability: 'available', active: true, kind: 'cron', label: 'Running a scheduled job', mentionsOpenCode: true },
+    ]), openCodeActivity: { availability: 'available', active: false } })
+    expect(stopped.stations[2]).toMatchObject({ name: 'opencode', state: 'Idle', room: 'Lounge', activity: 'On a break' })
   })
 
   it('keeps quiet agents in the Lounge and shows live work even when the gateway is stopped', () => {
@@ -125,16 +163,31 @@ describe('agent folders', () => {
     expect(lead.entries.find((entry) => entry.name === '.env')?.sensitive).toBe(true)
   })
 
-  it('falls back to the Hermes root for default and hides the other profiles inside it', async () => {
+  it('keeps the canonical default folder when its presentation label changes', async () => {
+    const folders = await resolveAgentFolders(['default', 'coder'], {}, home, new Map([['default', 'Lead Engineer']]))
+    expect(folders[0]).toMatchObject({ profile: 'default', label: 'Lead Engineer', path: '~/.hermes/profiles/default', available: true })
+    expect(folders[1]).toMatchObject({ profile: 'coder', label: 'coder' })
+    expect((await listFolder(folders[0], '', excludedFor(folders[0], folders))).profile).toBe('default')
+  })
+
+  it('lets specialists list their folders and hides specialist folders from the default root', async () => {
     const stock = mkdtempSync(path.join(tmpdir(), 'mc-stock-'))
     write(path.join(stock, '.hermes', 'SOUL.md'), 'root soul')
-    write(path.join(stock, '.hermes', 'profiles', 'coder', 'SOUL.md'), 'engineer')
-    const folders = await resolveAgentFolders(['default', 'coder'], {}, stock)
+    write(path.join(stock, '.hermes', 'profiles', 'project-engineering-team', 'SOUL.md'), 'engineer')
+    write(path.join(stock, '.hermes', 'profiles', 'personal-intelligence-team', 'SOUL.md'), 'personal')
+    write(path.join(stock, '.hermes', 'profiles', 'research-intelligence-team', 'SOUL.md'), 'researcher')
+    const folders = await resolveAgentFolders(['default', 'project-engineering-team', 'personal-intelligence-team', 'research-intelligence-team'], {}, stock)
     expect(folders[0]).toMatchObject({ profile: 'default', path: '~/.hermes', available: true })
-    const listing = await listFolder(folders[0], '', excludedFor(folders[0], folders))
+    const [defaultFolder, engineering, personal, research] = folders
+    for (const specialist of [engineering, personal, research]) {
+      expect(excludedFor(specialist, folders)).toEqual([])
+      expect(await listFolder(specialist, '', excludedFor(specialist, folders))).toMatchObject({ profile: specialist.profile, entries: [{ name: 'SOUL.md' }] })
+    }
+    expect(excludedFor(defaultFolder, folders)).toEqual([engineering.directory, personal.directory, research.directory])
+    const listing = await listFolder(defaultFolder, '', excludedFor(defaultFolder, folders))
     expect(listing.entries.map((entry) => entry.name)).toEqual(['profiles', 'SOUL.md'])
-    await expect(listFolder(folders[0], 'profiles/coder', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
-    await expect(readFolderFile(folders[0], 'profiles/coder/SOUL.md', excludedFor(folders[0], folders))).rejects.toMatchObject({ status: 404 })
+    await expect(listFolder(defaultFolder, 'profiles/project-engineering-team', excludedFor(defaultFolder, folders))).rejects.toMatchObject({ status: 404 })
+    await expect(readFolderFile(defaultFolder, 'profiles/project-engineering-team/SOUL.md', excludedFor(defaultFolder, folders))).rejects.toMatchObject({ status: 404 })
     rmSync(stock, { recursive: true, force: true })
   })
 

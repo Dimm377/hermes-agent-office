@@ -1,4 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 
 const execFile = promisify(execFileCallback)
@@ -11,8 +12,8 @@ const LOG_TAIL_LINES = 200
 export type Availability = 'available' | 'unavailable'
 export type GatewayState = 'Running' | 'Stopped' | 'Unknown'
 
-/** A Hermes profile; every profile is one agent. `gateway` comes from the profile list. */
-export interface Profile { name: string; model: string; gateway: GatewayState }
+/** A Hermes profile: `name` is the stable CLI id; `displayName` is presentation only. */
+export interface Profile { name: string; displayName?: string; model: string; gateway: GatewayState }
 export interface Source<T> {
   availability: Availability
   data: T
@@ -26,7 +27,7 @@ export interface RuntimeSnapshot {
 export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number; board?: string }
 export interface KanbanBoard { slug: string; name: string; current: boolean; total: number }
 /** `agent` is the Hermes profile the job belongs to (cron jobs are stored per profile). */
-export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean; agent?: string }
+export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean; agent?: string; displayName?: string }
 export interface Session { title: string; preview: string; lastActive: string; id?: string; workspace?: string; source?: string; actor?: string; active?: boolean }
 export interface Skill { name: string; category: string; source: string; trust: string; status: 'enabled' }
 export interface TaskBoardSnapshot { tasks: Source<Task[]>; boards?: KanbanBoard[]; failedBoards?: string[]; fetchedAt: string }
@@ -58,10 +59,12 @@ export interface OfficeStation {
 export type ActivityKind = 'chat' | 'cron' | 'tools' | 'thinking'
 export interface AgentActivity { profile: string; availability: Availability; active: boolean; kind?: ActivityKind; label?: string; lastSeen?: string; mentionsOpenCode: boolean }
 export interface AgentActivitySnapshot { agents: AgentActivity[]; fetchedAt: string }
+export interface OpenCodeActivity { availability: Availability; active: boolean; profile?: string; label?: string }
+type ProcessProfileReader = (pid: string) => Promise<string | undefined>
 export interface OfficeSnapshot { stations: OfficeStation[]; summary: OfficeSummary; fetchedAt: string }
 export interface OfficeSummary { declared: number; active: number; idle: number; offline: number; unknown: number; gatewaysReachable: number; gatewaysDeclared: number }
 export interface ExplicitOfficeState { station: OfficeStation['name']; state: 'Working' | 'Reviewing' | 'Collaborating'; expiresAt: string }
-export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[]; agentActivity?: AgentActivitySnapshot }
+export interface OfficeBuildOptions { now?: string | number; explicitStates?: ExplicitOfficeState[]; agentActivity?: AgentActivitySnapshot; openCodeActivity?: OpenCodeActivity }
 export interface UsageInsights {
   days: number
   sessions: number
@@ -80,7 +83,7 @@ export interface UsageInsights {
   /** The single session with the most tokens in the period. */
   topSession?: { tokens: number; date: string }
 }
-export interface AgentUsage { agent: string; availability: Availability; usage?: UsageInsights; error?: string }
+export interface AgentUsage { agent: string; displayName?: string; availability: Availability; usage?: UsageInsights; error?: string }
 export interface UsageTotals { sessions: number; messages: number; toolCalls: number; inputTokens: number; outputTokens: number; totalTokens: number; costUsd?: number }
 export interface UsageSnapshot {
   days: number
@@ -144,7 +147,7 @@ function toInt(value: string | undefined): number {
 
 const PROFILE_ROW = /^(.+?)\s+(\S+)\s+(running|stopped)(?:\s|$)/i
 
-interface ProfileRow { name: string; model: string; gateway: GatewayState }
+interface ProfileRow { name: string; displayName?: string; model: string; gateway: GatewayState }
 
 function profileRows(output: string): ProfileRow[] {
   const all = lines(output)
@@ -156,12 +159,14 @@ function profileRows(output: string): ProfileRow[] {
     const withGateway = row.match(PROFILE_ROW)
     const match = withGateway ?? row.match(/^(\S+)\s{2,}(\S+)/)
     if (!match) return []
-    // A display name renders as "Display Name (id)"; the id is the stable profile name.
+    // Hermes prints a display label as "Display Name (id)"; keep the id for every CLI/API key.
     const displayed = match[1].trim()
-    const name = displayed.match(/\(([\w.-]+)\)$/)?.[1] ?? displayed
+    const identity = displayed.match(/^(.+?) \(([\w.-]+)\)$/)
+    const name = identity?.[2] ?? displayed
+    const displayName = identity?.[1]
     const model = match[2] === '—' ? 'Not configured' : match[2]
     const gateway: GatewayState = withGateway ? (withGateway[3].toLowerCase() === 'running' ? 'Running' : 'Stopped') : 'Unknown'
-    return [{ name, model, gateway }]
+    return [{ name, ...(displayName ? { displayName } : {}), model, gateway }]
   })
 }
 
@@ -551,11 +556,12 @@ export async function collectTaskBoard(run: Run = systemRun): Promise<TaskBoardS
 export async function collectCalendar(run: Run = systemRun): Promise<CalendarSnapshot> {
   const fetchedAt = new Date().toISOString()
   const profiles = await read(run, 'hermes', ['profile', 'list'], parseProfiles, [])
-  const names = profiles.availability === 'available' ? profiles.data.map((profile) => profile.name).filter((name) => PROFILE_NAME.test(name)) : []
+  const validProfiles = profiles.availability === 'available' ? profiles.data.filter((profile) => PROFILE_NAME.test(profile.name)) : []
+  const names = validProfiles.map((profile) => profile.name)
   if (names.length === 0) return { jobs: await read(run, 'hermes', ['cron', 'list', '--all'], parseCronJobs, []), fetchedAt }
   const results = await Promise.all(names.map((name) => read(run, 'hermes', ['-p', name, 'cron', 'list', '--all'], parseCronJobs, [])))
   if (results.every((result) => result.availability !== 'available')) return { jobs: results[0], fetchedAt }
-  const jobs = results.flatMap((result, index) => result.availability === 'available' ? result.data.map((job) => ({ ...job, agent: names[index] })) : [])
+  const jobs = results.flatMap((result, index) => result.availability === 'available' ? result.data.map((job) => ({ ...job, agent: names[index], ...(validProfiles[index].displayName ? { displayName: validProfiles[index].displayName } : {}) })) : [])
   const failedProfiles = names.filter((_, index) => results[index].availability !== 'available')
   return { jobs: { availability: 'available', data: jobs }, ...(failedProfiles.length ? { failedProfiles } : {}), fetchedAt }
 }
@@ -602,11 +608,12 @@ function mergeRows<K extends 'model' | 'source'>(key: K, rows: ({ [P in K]: stri
  * Token usage of every agent. Hermes keeps sessions per profile, so `hermes insights` only
  * covers the active one; each profile is read with `-p` (at most four at a time) and summed.
  */
-export async function collectUsage(days: number, profiles: readonly string[], run: Run = systemRun): Promise<UsageSnapshot> {
+export async function collectUsage(days: number, profiles: readonly string[], run: Run = systemRun, displayNames: Map<string, string> = new Map()): Promise<UsageSnapshot> {
   const names = profiles.filter((name) => PROFILE_NAME.test(name))
   const agents = await mapLimit(names.length > 0 ? names : ['default'], USAGE_CONCURRENCY, async (agent): Promise<AgentUsage> => {
     const result = await read<UsageInsights | null>(run, 'hermes', [...(names.length > 0 ? ['-p', agent] : []), 'insights', '--days', String(days)], (output) => parseInsights(output, days), null)
-    return result.availability === 'available' && result.data ? { agent, availability: 'available', usage: result.data } : { agent, availability: 'unavailable', error: result.error?.message ?? 'hermes insights could not be read.' }
+    const displayName = displayNames.get(agent)
+    return result.availability === 'available' && result.data ? { agent, ...(displayName ? { displayName } : {}), availability: 'available', usage: result.data } : { agent, ...(displayName ? { displayName } : {}), availability: 'unavailable', error: result.error?.message ?? 'hermes insights could not be read.' }
   })
   const readable = agents.flatMap((agent) => (agent.usage ? [agent.usage] : []))
   const sum = (field: 'sessions' | 'messages' | 'toolCalls' | 'inputTokens' | 'outputTokens' | 'totalTokens') => readable.reduce((total, usage) => total + usage[field], 0)
@@ -813,15 +820,58 @@ export async function collectAgentActivity(profiles: readonly string[], run: Run
   return { agents, fetchedAt: new Date().toISOString() }
 }
 
+/** Reads only the Hermes profile field needed for OpenCode process attribution. */
+async function readHermesSessionProfile(pid: string): Promise<string | undefined> {
+  try {
+    const environment = await readFile(`/proc/${pid}/environ`, 'utf8')
+    return environment.split('\0').find((entry) => entry.startsWith('HERMES_SESSION_PROFILE='))?.slice('HERMES_SESSION_PROFILE='.length)
+  } catch {
+    return undefined
+  }
+}
+
+/** A point-in-time, read-only process probe for OpenCode itself (not log history). */
+export async function collectOpenCodeActivity(profiles: readonly string[], run: Run = systemRun, readProfile: ProcessProfileReader = readHermesSessionProfile): Promise<OpenCodeActivity> {
+  let output: string
+  const psArgs = globalThis.process.platform === 'linux' && typeof globalThis.process.getuid === 'function'
+    ? ['-u', String(globalThis.process.getuid()), '-o', 'pid=,ppid=,args=']
+    : ['-eo', 'pid=,ppid=,args=']
+  try { output = await run('ps', psArgs) } catch { return { availability: 'unavailable', active: false } }
+  const processes = lines(output).flatMap((line) => {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/)
+    return match ? [{ pid: match[1], ppid: match[2], args: match[3] }] : []
+  })
+  const byPid = new Map(processes.map((process) => [process.pid, process]))
+  const validProfiles = new Set(profiles.filter((profile) => PROFILE_NAME.test(profile)))
+  for (const process of processes) {
+    const command = process.args.match(/^\s*(?:\S+\/)?opencode(?:\s+(.+))?$/)
+    if (!command || /^(?:--version|-v)(?:\s|$)/.test(command[1] ?? '')) continue
+    let profile = globalThis.process.platform === 'linux' ? await readProfile(process.pid) : undefined
+    if (!profile || !validProfiles.has(profile)) {
+      profile = undefined
+      if (globalThis.process.platform === 'linux') {
+        let parent = byPid.get(process.ppid)
+        while (parent) {
+          const match = parent.args.match(/(?:^|\s)-p\s+([\w.-]+)(?:\s|$)/)
+          if (match && validProfiles.has(match[1])) { profile = match[1]; break }
+          parent = byPid.get(parent.ppid)
+        }
+      }
+    }
+    return { availability: 'available', active: true, ...(profile ? { profile } : {}) }
+  }
+  return { availability: 'available', active: false }
+}
+
 // ---------------------------------------------------------------------------
 // Office
 
 /** One office station per agent: every Hermes profile, plus OpenCode when it is installed. */
-interface AgentSpec { id: string; role: string; profile?: string; gateway?: GatewayState; aliases: string[] }
+interface AgentSpec { id: string; displayName?: string; role: string; profile?: string; gateway?: GatewayState; aliases: string[] }
 
 export function agentRoster(runtime: RuntimeSnapshot): AgentSpec[] {
   const profiles = runtime.profiles.availability === 'available' ? runtime.profiles.data : []
-  const agents: AgentSpec[] = profiles.filter((profile) => PROFILE_NAME.test(profile.name)).map((profile) => ({ id: profile.name, role: 'Hermes profile', profile: profile.name, gateway: profile.gateway, aliases: [profile.name.toLowerCase()] }))
+  const agents: AgentSpec[] = profiles.filter((profile) => PROFILE_NAME.test(profile.name)).map((profile) => ({ id: profile.name, displayName: profile.displayName, role: 'Hermes profile', profile: profile.name, gateway: profile.gateway, aliases: [profile.name.toLowerCase()] }))
   if (runtime.openCode.availability === 'available' && !agents.some((agent) => agent.id === 'opencode')) agents.push({ id: 'opencode', role: 'OpenCode', aliases: ['opencode', 'open-code'] })
   return agents
 }
@@ -885,13 +935,16 @@ export function buildOfficeSummary(stations: OfficeStation[], runtime: RuntimeSn
   }
 }
 
-function liveState(agent: AgentSpec, snapshot: AgentActivitySnapshot | undefined): { state: OfficeState; probe?: AgentActivity; known: boolean } {
-  if (!snapshot) return { state: 'Unknown', known: true }
+function liveState(agent: AgentSpec, snapshot: AgentActivitySnapshot | undefined, openCode: OpenCodeActivity | undefined): { state: OfficeState; probe?: AgentActivity; known: boolean } {
   if (!agent.profile) {
-    // OpenCode has no Hermes profile; it counts as working when an agent's recent log shows it being driven.
-    const driver = snapshot.agents.find((agent) => agent.mentionsOpenCode)
-    return { state: driver ? 'Working' : 'Unknown', probe: driver && { ...driver, label: 'Building via OpenCode' }, known: snapshot.agents.every((agent) => agent.availability === 'available') }
+    if (!openCode) return { state: 'Unknown', known: snapshot?.agents.every((item) => item.availability === 'available') ?? true }
+    if (openCode.availability === 'unavailable') return { state: 'Unknown', known: false }
+    const label = openCode.profile ? `OpenCode (${openCode.profile}): ${openCode.label ?? 'Running OpenCode'}` : openCode.label ?? 'Running OpenCode'
+    return openCode.active
+      ? { state: 'Working', probe: { profile: openCode.profile ?? 'opencode', availability: 'available', active: true, label, mentionsOpenCode: false }, known: true }
+      : { state: 'Unknown', known: true }
   }
+  if (!snapshot) return { state: 'Unknown', known: true }
   const probe = snapshot.agents.find((item) => item.profile === agent.profile)
   if (!probe || probe.availability === 'unavailable') return { state: 'Unknown', probe, known: false }
   return { state: probe.active ? (probe.kind === 'chat' ? 'Collaborating' : 'Working') : 'Unknown', probe, known: true }
@@ -910,7 +963,7 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
     const task = freshBoard ? attributedTask(board.tasks.data, agent.aliases) : undefined
     const overlay = explicitState(agent, explicitStates, now)
     const taskWorkState = taskState(task)
-    const live = liveState(agent, agentActivity)
+    const live = liveState(agent, agentActivity, options.openCodeActivity)
     const collaboration = freshActivity ? collaborationState(activity.sessions.data, agent.aliases) : 'Unknown'
     const stopped = gateway === 'Stopped'
     const liveKnown = options.agentActivity ? agentActivity !== undefined && live.known : true
@@ -930,10 +983,10 @@ export function buildOfficeSnapshot(runtime: RuntimeSnapshot, board: TaskBoardSn
       : activity.sessions.availability === 'unavailable' ? 'Not Available' : collaboration === 'Collaborating' ? 'Attributed active collaboration session' : 'No attributed recent activity'
     const runtimeProvenance = agent.profile ? `Gateway ${gateway ?? 'Unknown'} (hermes profile list)` : 'OpenCode version availability is not a state signal'
     const managedIdle = state === 'Idle' ? '; Ruang managed-idle placement policy (not agent-reported presence)' : ''
-    const liveProvenance = options.agentActivity ? `; live activity (${agent.profile ? `hermes -p ${agent.profile} logs/sessions` : 'agent logs mentioning OpenCode'}, last ${ACTIVITY_WINDOW}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.kind ?? 'active' : 'none'}` : ''
+    const liveProvenance = options.agentActivity ? `; live activity (${agent.profile ? `hermes -p ${agent.profile} logs/sessions` : `ps process probe${options.openCodeActivity?.profile ? `; Hermes profile ${options.openCodeActivity.profile}` : ''}`}${agent.profile ? `, last ${ACTIVITY_WINDOW}` : ''}): ${!agentActivity || !live.known ? 'unavailable' : live.state !== 'Unknown' ? live.probe?.label ?? live.probe?.kind ?? 'active' : 'none'}` : ''
     return {
       id: agent.id,
-      name: agent.id,
+      name: agent.displayName ?? agent.id,
       role: agent.role,
       ...roomForState(state, index),
       seat: index + 1,
@@ -997,7 +1050,11 @@ const calendarSource = cachedSource(() => collectCalendar())
 const activitySource = cachedSource(() => collectActivity())
 const knowledgeSource = cachedSource(() => collectKnowledge())
 const channelSource = cachedSource(() => collectChannels())
-const usageSources = new Map(USAGE_PERIODS.map((days) => [days, cachedSource(async () => collectUsage(days, (await getSnapshot()).profiles.data.map((profile) => profile.name)), INSIGHTS_CACHE_MS)]))
+const usageSources = new Map(USAGE_PERIODS.map((days) => [days, cachedSource(async () => {
+  const profiles = (await getSnapshot()).profiles.data
+  return collectUsage(days, profiles.map((profile) => profile.name), systemRun,
+    new Map(profiles.flatMap((profile) => profile.displayName ? [[profile.name, profile.displayName] as const] : [])))
+}, INSIGHTS_CACHE_MS)]))
 
 /** Token usage of every agent over 1, 7 or 30 days (anything else reads as 7). */
 export function getUsage(days: number, now = Date.now()): Promise<UsageSnapshot> {
@@ -1028,12 +1085,14 @@ export async function getTaskDetail(id: string, now = Date.now(), board?: string
 }
 
 export async function getOffice(now = Date.now()): Promise<OfficeSnapshot> {
-  const [runtime, board, activity, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getActivity(now), agentActivitySource(now)])
-  return buildOfficeSnapshot(runtime, board, activity, { agentActivity })
+  const runtime = getSnapshot(now)
+  const [runtimeSnapshot, board, activity, agentActivity, openCodeActivity] = await Promise.all([runtime, getTaskBoard(now), getActivity(now), agentActivitySource(now), runtime.then((snapshot) => collectOpenCodeActivity(snapshot.profiles.availability === 'available' ? snapshot.profiles.data.map((profile) => profile.name) : []))])
+  return buildOfficeSnapshot(runtimeSnapshot, board, activity, { agentActivity, openCodeActivity })
 }
 
 export async function getDashboard(now = Date.now()): Promise<DashboardSnapshot> {
-  const [runtime, board, calendar, activity, knowledge, channels, agentActivity] = await Promise.all([getSnapshot(now), getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), agentActivitySource(now)])
-  const office = buildOfficeSnapshot(runtime, board, activity, { agentActivity })
-  return buildDashboard({ runtime, board, calendar, activity, knowledge, channels, office, commands: commandHealth() })
+  const runtime = getSnapshot(now)
+  const [runtimeSnapshot, board, calendar, activity, knowledge, channels, agentActivity, openCodeActivity] = await Promise.all([runtime, getTaskBoard(now), getCalendar(now), getActivity(now), getKnowledge(now), getChannels(now), agentActivitySource(now), runtime.then((snapshot) => collectOpenCodeActivity(snapshot.profiles.availability === 'available' ? snapshot.profiles.data.map((profile) => profile.name) : []))])
+  const office = buildOfficeSnapshot(runtimeSnapshot, board, activity, { agentActivity, openCodeActivity })
+  return buildDashboard({ runtime: runtimeSnapshot, board, calendar, activity, knowledge, channels, office, commands: commandHealth() })
 }

@@ -135,6 +135,7 @@ The server uses only these fixed, read-only commands:
 - `hermes status --all`, `hermes logs <agent|gateway|errors> -n 200`
 - for token usage, for every profile (at most four at a time): `hermes -p <profile> insights --days <1|7|30>`
 - for live Office activity, for every profile (at most four at a time): `hermes -p <profile> logs agent -n 80 --since 3m` and `hermes -p <profile> sessions list --limit 3`
+- for OpenCode live activity: `ps -u <Ruang uid> -o pid=,ppid=,args=` on Linux (with a portable `ps -eo` fallback); on Linux only, the active OpenCode process's `/proc/<pid>/environ` is read solely to extract `HERMES_SESSION_PROFILE`
 
 How they run:
 - Commands run with `NO_COLOR=1` and a wide `COLUMNS` so the plain-text formats parse reliably.
@@ -151,7 +152,7 @@ Only normalized data is exposed:
 
 Log lines are the one intentional exception to "no raw output". They are returned after two redaction passes: Hermes's own secret redaction, then a second pass by the server (API keys, bearer tokens, `key=value` secrets, bot tokens). Home-directory paths are shortened to `~`, and the `hermes logs` header line (which contains a path) is dropped. Cron last-run error text is never returned, only ok/failed.
 
-Otherwise, raw CLI output, process details, paths, configuration, credentials, authentication, API keys, environment files, provider details and session databases are never read or returned. A failed source is rendered as `Not Available`; an unknown individual field is rendered as `Unknown`.
+Otherwise, raw CLI output, raw process argv/environment, paths, configuration, credentials, authentication, API keys, environment files, provider details and session databases are never returned or retained. A failed source is rendered as `Not Available`; an unknown individual field is rendered as `Unknown`.
 
 `/api/tasks`, `/api/calendar`, `/api/activity` and `/api/knowledge` each return a source availability state and refresh time:
 - Task Board is read-only and does not expose mutations.
@@ -199,7 +200,7 @@ Every Hermes profile writes all of its work to its own `agent.log`: messaging re
 
 - Gateway message lines together with agent-loop or tool lines, or a session active in the last 3 minutes, become `Collaborating` ("Replying to a chat", at the meeting table).
 - `cron.*` becomes `Working` ("Running a scheduled job"); `tools.*` becomes `Working` ("Using tools"); `agent`/`run_agent` becomes `Working` ("Working on a request").
-- OpenCode is `Working` when a recent agent log line shows it being driven.
+- OpenCode is `Working` when the process probe finds an active OpenCode process owned by the Ruang user. On Linux, `HERMES_SESSION_PROFILE` is extracted from that process environment only to attribute it; raw argv and environment are never returned or retained.
 
 Gateway polling noise and CLI housekeeping lines are ignored.
 

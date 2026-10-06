@@ -3,14 +3,14 @@ export type GatewayState = 'Running' | 'Stopped' | 'Unknown'
 export interface Source<T> { availability: Availability; data: T; error?: { code: string; message: string } }
 export interface RuntimeSnapshot {
   /** Every Hermes profile is an agent; `gateway` comes from `hermes profile list`. */
-  profiles: Source<{ name: string; model: string; gateway: GatewayState }[]>
+  profiles: Source<{ name: string; displayName?: string; model: string; gateway: GatewayState }[]>
   openCode: Source<string>
   fetchedAt: string
 }
 export interface Task { title: string; status: string; id?: string; assignee?: string; priority?: number; board?: string }
 export interface KanbanBoard { slug: string; name: string; current: boolean; total: number }
 /** `agent` is the Hermes profile the job belongs to (cron jobs are stored per profile). */
-export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean; agent?: string }
+export interface ScheduledJob { name: string; schedule: string; id?: string; nextRun?: string; overdue?: boolean; status?: string; repeat?: string; lastRun?: string; lastRunOk?: boolean; agent?: string; displayName?: string }
 export interface Session { title: string; preview: string; lastActive: string; id?: string; workspace?: string; source?: string; actor?: string; active?: boolean }
 export interface Skill { name: string; category: string; source: string; trust: string; status: 'enabled' }
 export interface TaskBoardSnapshot { tasks: Source<Task[]>; boards?: KanbanBoard[]; failedBoards?: string[]; fetchedAt: string }
@@ -54,7 +54,7 @@ export interface UsageInsights {
   sources: { source: string; sessions: number; tokens: number }[]
   topSession?: { tokens: number; date: string }
 }
-export interface AgentUsage { agent: string; availability: Availability; usage?: UsageInsights; error?: string }
+export interface AgentUsage { agent: string; displayName?: string; availability: Availability; usage?: UsageInsights; error?: string }
 export interface UsageSnapshot {
   days: number
   agents: AgentUsage[]

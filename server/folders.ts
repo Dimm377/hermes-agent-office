@@ -229,7 +229,7 @@ async function firstDirectory(candidates: string[]): Promise<{ directory: string
  * A non-default agent that resolves to the Hermes root, or to another agent's folder, is not
  * opened: it would show files that are not its own.
  */
-export async function resolveAgentFolders(profiles: string[], env: NodeJS.ProcessEnv = process.env, home = homedir()): Promise<AgentFolder[]> {
+export async function resolveAgentFolders(profiles: string[], env: NodeJS.ProcessEnv = process.env, home = homedir(), displayNames: Map<string, string> = new Map()): Promise<AgentFolder[]> {
   const root = hermesRoot(env, home)
   // Every Hermes profile this machine reports; `default` always exists in Hermes, so it is the
   // fallback when the profile list cannot be read.
@@ -244,7 +244,7 @@ export async function resolveAgentFolders(profiles: string[], env: NodeJS.Proces
   const folders: AgentFolder[] = []
   for (const spec of specs) {
     const { directory, real, denied } = await firstDirectory(spec.candidates)
-    const label = spec.profile
+    const label = displayNames.get(spec.profile) || spec.profile
     const base = { profile: spec.profile, label, path: displayPath(directory, home), directory: real ?? directory }
     // OpenCode is optional: without its folder it is simply not listed.
     if (!real && spec.profile === 'opencode' && !denied) continue
@@ -252,7 +252,7 @@ export async function resolveAgentFolders(profiles: string[], env: NodeJS.Proces
     if (spec.profile !== 'default' && real === realRoot) { folders.push({ ...base, available: false, reason: 'Resolves to the shared Hermes root, not its own folder' }); continue }
     const owner = claimed.get(real)
     if (owner) { folders.push({ ...base, available: false, reason: `Same folder as ${owner}` }); continue }
-    claimed.set(real, label)
+    claimed.set(real, spec.profile)
     // Existence only needs the parent's permissions; listing needs read + execute on the folder.
     const readable = await access(real, constants.R_OK | constants.X_OK).then(() => true, () => false)
     folders.push({ ...base, available: true, ...(readable ? {} : { warning: `No read permission for "${processUser()}"` }) })
@@ -260,9 +260,12 @@ export async function resolveAgentFolders(profiles: string[], env: NodeJS.Proces
   return folders
 }
 
-/** Real paths of every other available agent folder, hidden inside this agent's folder. */
+/** Real paths of other available agent folders nested inside this agent's folder. */
 export function excludedFor(folder: AgentFolder, folders: AgentFolder[]): string[] {
-  return folders.filter((other) => other.available && other.profile !== folder.profile).map((other) => other.directory)
+  return folders.filter((other) => {
+    const relative = path.relative(folder.directory, other.directory)
+    return other.available && other.profile !== folder.profile && relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative)
+  }).map((other) => other.directory)
 }
 
 export function publicAgent({ directory: _directory, ...agent }: AgentFolder): FolderAgent {

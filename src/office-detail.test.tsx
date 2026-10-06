@@ -1,7 +1,24 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { OfficeDetail } from './pages/Office.tsx'
-import type { OfficeStation } from './types.ts'
+import { Agents } from './pages/Agents.tsx'
+import type { OfficeStation, RuntimeSnapshot } from './types.ts'
+
+describe('Agents display names', () => {
+  it('shows the Hermes label while keeping the canonical profile id for identity', () => {
+    const runtime: RuntimeSnapshot = {
+      profiles: { availability: 'available', data: [
+        { name: 'default', displayName: 'Lead Engineer', model: 'm', gateway: 'Running' },
+        { name: 'personal-intelligence-team', model: 'm', gateway: 'Running' },
+      ] },
+      openCode: { availability: 'unavailable', data: '' }, fetchedAt: '2026-09-27T12:00:00.000Z',
+    }
+    const markup = renderToStaticMarkup(<Agents runtime={runtime}/>)
+    expect(markup).toContain('<h2>Lead Engineer</h2>')
+    expect(markup).toContain('<h2>personal-intelligence-team</h2>')
+    expect(markup).not.toContain('<h2>default</h2>')
+  })
+})
 
 describe('OfficeDetail', () => {
   it('renders a labelled in-page dialog with station metadata, evidence, and a close control', () => {

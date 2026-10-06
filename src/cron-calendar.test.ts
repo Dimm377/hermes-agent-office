@@ -54,8 +54,12 @@ describe('month entries', () => {
     expect([...entries.values()].flat().filter((entry) => entry.job === 'Paused')).toHaveLength(1)
   })
 
-  it('keeps the owning agent on every entry', () => {
-    const entries = october([job({ name: 'Nightly review', schedule: '30 22 * * *', agent: 'coder' })])
-    expect(entries.get('2026-10-01')).toEqual([{ agent: 'coder', job: 'Nightly review', kind: 'run', label: '22:30' }])
+  it('keeps the owning agent id and optional display name on every entry', () => {
+    const entries = october([
+      job({ name: 'Morning brief', agent: 'default', displayName: 'Lead Engineer' }),
+      job({ name: 'Nightly review', schedule: '30 22 * * *', agent: 'coder' }),
+    ])
+    expect(entries.get('2026-10-01')).toContainEqual({ agent: 'default', displayName: 'Lead Engineer', job: 'Morning brief', kind: 'run', label: '08:00' })
+    expect(entries.get('2026-10-01')).toContainEqual({ agent: 'coder', job: 'Nightly review', kind: 'run', label: '22:30' })
   })
 })

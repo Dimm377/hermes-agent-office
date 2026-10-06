@@ -63,7 +63,10 @@ app.get('/api/tasks/:id', async (request, response) => {
 // (every Hermes profile this machine reports, and OpenCode when installed) can be opened.
 async function agentFolders() {
   const runtime = await getSnapshot()
-  return resolveAgentFolders(runtime.profiles.data.map((profile) => profile.name))
+  return resolveAgentFolders(
+    runtime.profiles.data.map((profile) => profile.name), process.env, undefined,
+    new Map(runtime.profiles.data.map((profile) => [profile.name, profile.displayName ?? profile.name])),
+  )
 }
 async function openFolder(profile: string) {
   const folders = await agentFolders()

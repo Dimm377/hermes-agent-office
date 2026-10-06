@@ -45,7 +45,7 @@ export function MonthView({ jobs: allJobs }: { jobs: ScheduledJob[] }) {
         const list = entries.get(key) ?? []
         return <button type="button" role="gridcell" key={key} className={`month-cell${key === today ? ' today' : ''}${key === selected ? ' selected' : ''}${key < today ? ' past' : ''}`} onClick={() => setSelected(key)} aria-label={`${key}: ${list.length} item${list.length === 1 ? '' : 's'}`} aria-selected={key === selected}>
           <span className="month-day">{day}</span>
-          {list.slice(0, 3).map((entry, entryIndex) => <span key={entryIndex} className={`month-entry kind-${entry.kind}`} title={`${entry.job}${entry.agent ? ` (${agentLabel(entry.agent)})` : ''} · ${KIND_LABEL[entry.kind]} ${entry.label}`}><b>{entry.label}</b> {entry.job}</span>)}
+          {list.slice(0, 3).map((entry, entryIndex) => <span key={entryIndex} className={`month-entry kind-${entry.kind}`} title={`${entry.job}${entry.agent ? ` (${agentLabel(entry.displayName ?? entry.agent)})` : ''} · ${KIND_LABEL[entry.kind]} ${entry.label}`}><b>{entry.label}</b> {entry.job}</span>)}
           {list.length > 3 && <span className="month-more">+{list.length - 3} more</span>}
           {list.length > 0 && <span className="month-dots" aria-hidden="true">{list.slice(0, 4).map((entry, entryIndex) => <i key={entryIndex} className={`kind-${entry.kind}`}/>)}</span>}
         </button>
@@ -53,7 +53,7 @@ export function MonthView({ jobs: allJobs }: { jobs: ScheduledJob[] }) {
     </div>
     <div className="month-day-detail">
       <p className="eyebrow">{new Date(`${selected}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-      {selectedEntries.length === 0 ? <p className="muted">Nothing scheduled on this day.</p> : <ul>{selectedEntries.map((entry, index) => <li key={index}><span className={`badge kind-${entry.kind}`}>{KIND_LABEL[entry.kind]}</span> <strong>{entry.job}</strong> <span className="muted">{entry.label}</span>{entry.agent && <span className="chip">{agentLabel(entry.agent)}</span>}</li>)}</ul>}
+      {selectedEntries.length === 0 ? <p className="muted">Nothing scheduled on this day.</p> : <ul>{selectedEntries.map((entry, index) => <li key={index}><span className={`badge kind-${entry.kind}`}>{KIND_LABEL[entry.kind]}</span> <strong>{entry.job}</strong> <span className="muted">{entry.label}</span>{entry.agent && <span className="chip">{agentLabel(entry.displayName ?? entry.agent)}</span>}</li>)}</ul>}
       <small className="muted">Times are the Hermes host's local time. Paused jobs only show their last run.</small>
     </div>
   </section>

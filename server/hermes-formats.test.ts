@@ -28,7 +28,7 @@ const profileList = [
   '',
   ` ${'Profile'.padEnd(16)} ${'Model'.padEnd(28)} ${'Gateway'.padEnd(12)} ${'Alias'.padEnd(12)} Distribution`,
   ` ${'─'.repeat(15)}    ${'─'.repeat(27)}    ${'─'.repeat(11)}    ${'─'.repeat(11)}    ${'─'.repeat(20)}`,
-  ` ◆${'default'.padEnd(15)} ${'anthropic/claude-sonnet-4'.padEnd(28)} ${'running'.padEnd(12)} ${'—'.padEnd(12)} —`,
+  ` ◆${'Lead Engineer (default)'.padEnd(15)} ${'anthropic/claude-sonnet-4'.padEnd(28)} ${'running'.padEnd(12)} ${'—'.padEnd(12)} —`,
   `  ${'Code Helper (coder)'.padEnd(15)} ${'openai/gpt-5.5'.padEnd(28)} ${'stopped'.padEnd(12)} ${'ch'.padEnd(12)} —`,
   `  ${'scratch'.padEnd(15)} ${'—'.padEnd(28)} ${'stopped'.padEnd(12)} ${'—'.padEnd(12)} —`,
   '',
@@ -61,8 +61,8 @@ const cronList = `
 describe('Hermes profile list', () => {
   it('reads display-name ids, long names and unset models by column', () => {
     expect(parseProfiles(profileList)).toEqual([
-      { name: 'default', model: 'anthropic/claude-sonnet-4', gateway: 'Running' },
-      { name: 'coder', model: 'openai/gpt-5.5', gateway: 'Stopped' },
+      { name: 'default', displayName: 'Lead Engineer', model: 'anthropic/claude-sonnet-4', gateway: 'Running' },
+      { name: 'coder', displayName: 'Code Helper', model: 'openai/gpt-5.5', gateway: 'Stopped' },
       { name: 'scratch', model: 'Not configured', gateway: 'Stopped' },
     ])
   })
@@ -280,10 +280,10 @@ describe('Hermes insights', () => {
       calls.push(args)
       if (args[1] === 'broken') throw new Error('boom')
       return args[1] === 'coder' ? withPlatforms(3000000) : insights
-    })
+    }, new Map([['default', 'Lead Engineer']]))
     expect(calls.flat()).not.toContain('--evil')
     expect(calls[0]).toEqual(['-p', 'default', 'insights', '--days', '30'])
-    expect(usage.agents.map((agent) => [agent.agent, agent.availability])).toEqual([['coder', 'available'], ['default', 'available'], ['broken', 'unavailable']])
+    expect(usage.agents.map((agent) => [agent.agent, agent.displayName, agent.availability])).toEqual([['coder', undefined, 'available'], ['default', 'Lead Engineer', 'available'], ['broken', undefined, 'unavailable']])
     expect(usage.totals.totalTokens).toBe(3000000 + 1323579)
     expect(usage.totals.costUsd).toBeCloseTo(24.68)
     expect(usage.models).toEqual([{ model: 'anthropic/claude-sonnet-4', sessions: 80, tokens: 2600000 }])
