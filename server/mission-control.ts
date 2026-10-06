@@ -453,14 +453,19 @@ function describeFailure(error: unknown): CommandError {
   return new CommandError('Read command was unavailable.', 'COMMAND_FAILED', stdout)
 }
 
-async function systemRun(file: string, args: string[], options: RunOptions = {}): Promise<string> {
+export async function systemRun(file: string, args: string[], options: RunOptions = {}): Promise<string> {
   const started = Date.now()
   const command = [file, ...args].join(' ')
+  const env: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: '1', TERM: 'dumb', COLUMNS: '200', PYTHONIOENCODING: 'utf-8' }
+  // Ruang only runs the fixed read commands in this module. A server launched by a delegated
+  // worker inherits this fence, which also blocks Hermes' harmless Kanban initialization before
+  // `list`; do not let the launch context make the read-only API unavailable.
+  if (file === 'hermes') delete env.HERMES_DELEGATED_CHILD_CONTEXT
   try {
     const { stdout } = await execFile(file, args, {
       timeout: COMMAND_TIMEOUT_MS,
       maxBuffer: 16 * 1024 * 1024,
-      env: { ...process.env, NO_COLOR: '1', TERM: 'dumb', COLUMNS: '200', PYTHONIOENCODING: 'utf-8' },
+      env,
     })
     recordCommand({ command, ok: true, durationMs: Date.now() - started, at: new Date(started).toISOString() })
     return stdout
